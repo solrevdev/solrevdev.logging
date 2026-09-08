@@ -72,4 +72,14 @@ public class RefererHeaderTests
 
         Assert.Equal(RefererHeader.DefaultMaximumLength, RefererHeader.Sanitise(referer)!.Length);
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_cap_that_keeps_nothing_returns_nothing_rather_than_throwing(int maximumLength)
+    {
+        // "Never throws" has to hold for the cap as well as for the header. A negative cap
+        // reached trimmed[..maximumLength] and threw ArgumentOutOfRangeException mid-request.
+        Assert.Null(RefererHeader.Sanitise("https://crm.example.com/admin", maximumLength));
+    }
 }

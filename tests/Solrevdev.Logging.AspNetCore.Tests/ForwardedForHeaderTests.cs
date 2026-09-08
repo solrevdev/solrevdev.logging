@@ -37,10 +37,12 @@ public class ForwardedForHeaderTests
     public void A_leftover_header_is_recombined_with_the_settled_address()
     {
         var headers = Headers(
-            ("X-Forwarded-For", "1.2.3.4,5.6.7.8"),
+            ("X-Forwarded-For", "203.0.113.66,203.0.113.11"),
             ("X-Original-For", "[::1]:49725"));
 
-        Assert.Equal("1.2.3.4,5.6.7.8,203.0.113.99", ForwardedForHeader.Claimed(headers, "203.0.113.99"));
+        Assert.Equal(
+            "203.0.113.66,203.0.113.11,203.0.113.99",
+            ForwardedForHeader.Claimed(headers, "203.0.113.99"));
     }
 
     [Fact]
@@ -50,7 +52,7 @@ public class ForwardedForHeaderTests
         // whole claim and nothing is appended to it.
         var headers = Headers(("X-Forwarded-For", "203.0.113.99"));
 
-        Assert.Equal("203.0.113.99", ForwardedForHeader.Claimed(headers, "10.0.0.1"));
+        Assert.Equal("203.0.113.99", ForwardedForHeader.Claimed(headers, "203.0.113.10"));
     }
 
     [Fact]
@@ -75,5 +77,19 @@ public class ForwardedForHeaderTests
     public void Null_headers_are_refused()
     {
         Assert.Throws<ArgumentNullException>(() => ForwardedForHeader.Claimed(null!, "203.0.113.99"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_cap_that_keeps_nothing_returns_nothing_rather_than_throwing(int maximumLength)
+    {
+        // A misconfigured cap used to reach a range slice and throw out of a log enricher, on
+        // a request, in production. Keeping zero characters and keeping no property are the
+        // same outcome, so the helper omits; the configuration mistake is refused at startup
+        // by AddSolrevdevRequestLogging instead, which is where it can be read.
+        var headers = Headers(("X-Forwarded-For", "203.0.113.42"));
+
+        Assert.Null(ForwardedForHeader.Claimed(headers, "203.0.113.99", maximumLength));
     }
 }

@@ -41,11 +41,16 @@ public static class SerilogRequestLoggingExtensions
     /// <c>GetLevel</c> here undoes the point of the helper.
     /// </param>
     /// <returns>The <see cref="IApplicationBuilder"/>, for chaining.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddSolrevdevRequestLogging</c> was not called.
+    /// </exception>
     public static IApplicationBuilder UseSolrevdevRequestLogging(
         this IApplicationBuilder app,
         Action<SerilogRequestLoggingOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        RequestLoggingMarkerService.ThrowIfUnregistered(app);
 
         return app.UseSerilogRequestLogging(options =>
         {

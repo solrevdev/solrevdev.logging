@@ -37,10 +37,34 @@ public static class RequestLogLevel
     /// The level for one request's summary event, reading options from the request services.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This is the shape <c>UseSerilogRequestLogging</c> wants for
     /// <c>options.GetLevel</c> once the elapsed argument is dropped. Prefer
     /// <see cref="SerilogRequestLoggingExtensions.UseSolrevdevRequestLogging"/>, which wires
     /// it for you.
+    /// </para>
+    /// <para>
+    /// <strong>It falls back to the package defaults, silently, when the options cannot be
+    /// resolved.</strong> That is either a null <c>HttpContext.RequestServices</c> or an
+    /// application that wired the middleware without calling
+    /// <c>AddSolrevdevRequestLogging</c>. Nothing is logged about it, because a level function
+    /// runs on every request and a warning per request would be worse than the fallback.
+    /// </para>
+    /// <para>
+    /// It matters most in a test. A bare <c>DefaultHttpContext</c> has no
+    /// <c>RequestServices</c>, so a test that calls this overload measures the package
+    /// defaults while appearing to measure the application's configuration. A configured
+    /// <c>/version</c> prefix comes back Verbose there whatever the application set. Either
+    /// give the context a <c>RequestServices</c> built from the application's own
+    /// registrations, or call
+    /// <see cref="For(HttpContext, Exception?, RequestLogOptions)"/> with the options in hand.
+    /// </para>
+    /// <para>
+    /// The other way to reach the fallback, an application that wired the middleware without
+    /// calling <c>AddSolrevdevRequestLogging</c>, is refused at startup by
+    /// <see cref="RequestLoggingMarkerService"/>. That guard covers the application. It cannot
+    /// cover the test above, because no application starts there.
+    /// </para>
     /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="exception">The exception the pipeline surfaced, if one did.</param>

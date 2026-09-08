@@ -155,12 +155,27 @@ jobs:
             echo "Tag $TAG already exists; this is a safe retry."
             echo "tag_exists=true" >> "$GITHUB_OUTPUT"
           else
+            # A cheap pre-flight, not the guarantee. It fails a doomed run in seconds
+            # instead of after a build, but master can still move during the build that
+            # follows. What actually protects the release is the atomic tag push below,
+            # which now happens BEFORE anything is uploaded to NuGet.
             if [[ "$REMOTE_MASTER" != "$GITHUB_SHA" ]]; then
               echo "origin/master moved from $GITHUB_SHA to $REMOTE_MASTER; refusing to publish." >&2
               exit 1
             fi
             echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # A retry has to pack the tree the tag names, not whatever master holds now.
+      # Without this, a re-run against an existing tag checks the version STRING and then
+      # packs the current checkout, so the package and the tag can describe different
+      # source. --force discards the version bump the step above wrote into the csproj,
+      # which the tagged tree already carries.
+      - name: Check out the released tag
+        if: steps.release-state.outputs.tag_exists == 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: git checkout --force --detach "$TAG"
 
       - name: Restore
         run: |
@@ -191,6 +206,33 @@ jobs:
           fi
           echo "path=$PACKAGE" >> "$GITHUB_OUTPUT"
 
+      # Git FIRST, NuGet second, and the order is the point. These two are separate
+      # systems and nothing here makes them atomic; what can be chosen is which one is
+      # left dangling when the pair does not complete. A tag with no package is a retry:
+      # the step above checks that tag out and packs the same source again, and
+      # --skip-duplicate makes the push idempotent. A package with no tag is not
+      # recoverable, because the version is already taken on nuget.org and the source it
+      # was built from is whatever master happened to hold.
+      #
+      # The push is atomic across the branch and the tag, so it fails rather than
+      # fast-forwards if master moved during the build. That failure now costs a run
+      # rather than a wrong published package.
+      - name: Commit version and tag
+        if: steps.release-state.outputs.tag_exists != 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          BUMPED: ${{ steps.bump.outputs.bumped }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ "$BUMPED" == "true" ]]; then
+            git add "$CSPROJ"
+            git commit -m "chore: bump version to $VERSION"
+          fi
+          git tag "$TAG"
+          git push --atomic origin HEAD:refs/heads/master "refs/tags/$TAG"
+
       # Trusted publishing. This exchanges the job's GitHub OIDC token for a
       # nuget.org key that lasts one hour and is good for one push, so there is
       # no long-lived NUGET_API_KEY secret in this repository. It runs LATE, in
@@ -212,22 +254,6 @@ jobs:
             --api-key "$NUGET_API_KEY" \
             --source "$NUGET_SOURCE" \
             --skip-duplicate
-
-      - name: Commit version and tag
-        if: steps.release-state.outputs.tag_exists != 'true'
-        env:
-          TAG: ${{ steps.bump.outputs.tag }}
-          VERSION: ${{ steps.bump.outputs.version }}
-          BUMPED: ${{ steps.bump.outputs.bumped }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ "$BUMPED" == "true" ]]; then
-            git add "$CSPROJ"
-            git commit -m "chore: bump version to $VERSION"
-          fi
-          git tag "$TAG"
-          git push --atomic origin HEAD:refs/heads/master "refs/tags/$TAG"
 
       - name: Create GitHub Release
         env:

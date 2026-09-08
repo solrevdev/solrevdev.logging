@@ -21,6 +21,11 @@ public class LoggingContractTests
 
     private static readonly string[] AuthenticatedNames = ["UserId", "UserEmail"];
 
+    private static readonly string[] OptionalNames =
+    [
+        "ClientIp", "TraceId", "ForwardedFor", "Referer", "UserAgent", "UserId", "UserEmail"
+    ];
+
     [Fact]
     public void The_required_set_is_exactly_the_sixteen_names()
     {
@@ -77,6 +82,37 @@ public class LoggingContractTests
         Assert.Equal(
             LoggingContract.EnricherProperties.Concat(LoggingContract.AuthenticatedProperties).Order(),
             recorder.Properties.Keys.Order());
+    }
+
+    [Fact]
+    public void The_optional_set_is_exactly_the_seven_names()
+    {
+        Assert.Equal(OptionalNames.Order(), LoggingContract.OptionalProperties.Order());
+    }
+
+    [Fact]
+    public void Every_optional_name_is_one_this_package_owns()
+    {
+        // The set is about what a request can lack, so a name in it that nothing sets would be
+        // a permanent hole in a consumer's contract test rather than an allowance.
+        Assert.All(
+            LoggingContract.OptionalProperties,
+            name => Assert.Contains(name, LoggingContract.AllProperties));
+
+        Assert.Empty(LoggingContract.OptionalProperties.Intersect(LoggingContract.HostProperties));
+    }
+
+    [Fact]
+    public void The_unconditional_part_of_the_contract_is_what_is_left()
+    {
+        // The assertion a consuming application should actually make. RequiredProperties names
+        // the contract; this is the part of it a request cannot be missing for an ordinary
+        // reason.
+        Assert.Equal(
+            new[] { "Application", "Environment", "MachineName", "ProcessId", "ThreadId",
+                    "RequestMethod", "RequestPath", "RequestHost", "RequestScheme",
+                    "StatusCode", "Elapsed" }.Order(),
+            LoggingContract.RequiredProperties.Except(LoggingContract.OptionalProperties).Order());
     }
 
     private static HttpContext FullyPopulatedRequest(bool authenticated)

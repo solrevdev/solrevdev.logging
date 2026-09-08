@@ -33,15 +33,22 @@ public static class RefererHeader
     /// Only http and https take the URI route; everything else is cut by hand.
     /// </para>
     /// <para>
-    /// Never throws. A referer is a request header, so it is whatever the caller typed, and a
-    /// malformed one must not be able to fail a request. A value that is not a valid absolute
-    /// http or https URI is still cut at the first <c>?</c> or <c>#</c> rather than kept
-    /// whole: the reason for stripping the query is the token in it, and a malformed URL can
-    /// carry a token just as well.
+    /// Never throws, for any header value and for any cap. A referer is a request header, so
+    /// it is whatever the caller typed, and a malformed one must not be able to fail a
+    /// request. A value that is not a valid absolute http or https URI is still cut at the
+    /// first <c>?</c> or <c>#</c> rather than kept whole: the reason for stripping the query
+    /// is the token in it, and a malformed URL can carry a token just as well.
+    /// </para>
+    /// <para>
+    /// A <paramref name="maximumLength"/> of zero or less returns null rather than throwing,
+    /// because keeping zero characters and keeping no property are the same outcome. That is a
+    /// misconfiguration rather than a choice, so an application registering these options gets
+    /// it refused at startup instead; see
+    /// <see cref="ServiceCollectionExtensions.AddSolrevdevRequestLogging(Microsoft.Extensions.DependencyInjection.IServiceCollection)"/>.
     /// </para>
     /// </remarks>
     /// <param name="referer">The raw header value, which may be absent or not a URI at all.</param>
-    /// <param name="maximumLength">The most characters to keep.</param>
+    /// <param name="maximumLength">The most characters to keep. Zero or less keeps nothing.</param>
     /// <returns>Scheme, host and path, capped, or null when there was nothing worth keeping.</returns>
     public static string? Sanitise(string? referer, int maximumLength = DefaultMaximumLength)
     {

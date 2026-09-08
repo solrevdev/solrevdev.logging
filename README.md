@@ -1,21 +1,13 @@
 # solrevdev.logging
 
-Shared Serilog request-logging infrastructure for ASP.NET Core.
+Shared Serilog request logging for ASP.NET Core.
 
 [![NuGet](https://img.shields.io/nuget/v/solrevdev.Logging.AspNetCore.svg)](https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/)
 
-## Why this exists
-
-Three internal ASP.NET Core applications each carried a hand-copied version of the same
-request-logging code, and the three copies had diverged. They wrote into one shared Seq and
-were told apart by an `Application` property, so a divergence there is not cosmetic: a
-property that means the same thing under two names is a filter that silently returns half the
-traffic, and a property one application sets and another does not is a query that quietly
-misses rows.
-
-This package is the union of the three, not the smallest common part. Everything in it was
-measured in one of them first, and the comments carry the measurement rather than the
-conclusion.
+Several applications write into one Seq server and are told apart by an `Application`
+property. This package gives them the same property names, the same request summary and the
+same rules about what is logged and what is left out, so one query means the same thing
+across all of them.
 
 ## Install
 
@@ -26,14 +18,83 @@ dotnet add package solrevdev.Logging.AspNetCore
 Targets `net10.0`. Depends on `Serilog.AspNetCore` 10.0.0 and the ASP.NET Core shared
 framework.
 
-## Wiring
+## Set up Serilog
+
+This package does not configure Serilog. Your application owns its logger, its sinks and its
+enrichers. Two of those choices matter to what follows.
+
+`Enrich.FromLogContext()` is required. The client and user middleware push their properties
+onto Serilog's `LogContext`, and without that enricher the properties never reach your
+ordinary application log events. The request summary is enriched separately and still works,
+so the failure looks like half the properties turning up.
+
+```csharp
+using Serilog;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSerilog((services, configuration) => configuration
+    .ReadFrom.Configuration(builder.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "orders")
+    .WriteTo.Console());
+```
+
+Add your own sink, usually Seq, alongside the console. `Application` can come from
+`Serilog:Properties` in configuration instead of the call above.
+
+## Enable forwarded headers
+
+Behind a load balancer, the address the application sees on the connection is the balancer's
+until forwarded-header processing is enabled and configured. `app.UseForwardedHeaders()` on
+its own does not do it: the default `ForwardedHeadersOptions.ForwardedHeaders` is `None`, so
+nothing is read.
+
+Which peers to trust is your application's decision and this package will never make it. The
+shape below is for one AWS Application Load Balancer with a single hop to the application.
+Check your own network path before copying it: an NLB, CloudFront in front of an ALB, or nginx
+in front of either is a different number of hops and a different trust list.
+
+```csharp
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+
+    // The defaults trust loopback only, which is not where a balancer is. Clear them and
+    // state the peers or networks this deployment actually has in front of it.
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Clear();
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("203.0.113.0"), 24));
+});
+```
+
+Two details worth knowing before you paste that.
+
+`KnownIPNetworks` is the .NET 8 replacement for `KnownNetworks`, which is obsolete and warns
+on .NET 10. It holds `System.Net.IPNetwork`, and `Microsoft.AspNetCore.HttpOverrides` has a
+type of the same name, so with both namespaces in scope the name has to be qualified or the
+file will not compile.
+
+`ForwardLimit` is a cap on how many entries are consumed, counting from the right. It should
+match the number of trusted hops in front of the application. A limit higher than the real
+topology lets a caller's own entry be taken as the client address.
+
+The example addresses here are from TEST-NET-3. Substitute your own; do not ship
+`203.0.113.0/24` as a trust list.
+
+## Wire up the middleware
 
 ```csharp
 builder.Services.AddSolrevdevRequestLogging();
 
-app.UseForwardedHeaders();          // your policy, not this package's
+app.UseForwardedHeaders();
 app.UseSolrevdevClientLogContext(); // ClientIp and TraceId
-app.UseSolrevdevRequestLogging();   // Serilog's one-line request summary
+app.UseSolrevdevRequestLogging();   // Serilog's request summary
 app.UseStaticFiles();
 app.UseRouting();
 app.UseRateLimiter();
@@ -42,52 +103,106 @@ app.UseSolrevdevUserLogContext();   // UserId and UserEmail
 app.UseAuthorization();
 ```
 
-**That order is the API.** Pin it with a test in your application, because every wrong
-position fails silently:
+`AddSolrevdevRequestLogging` registers the options, validates them and records that the package
+was added. It does not configure Serilog, forwarded headers, authentication or rate limiting.
+The static-file, rate-limiter and authentication lines above assume your application already
+uses and configures those features.
+
+The call is required. All three `Use` calls throw `InvalidOperationException` at startup
+without it:
+
+```text
+Unable to find the required services. Please add all the required services by calling
+'IServiceCollection.AddSolrevdevRequestLogging' in the application startup code.
+```
+
+That check exists because the options cannot provide one. `IOptions<RequestLogOptions>`
+resolves to a default instance in any ASP.NET Core host, registered or not, so an application
+that forgot the call used to start and log every request with package defaults it never chose.
+
+The order is part of the API. Pin it with a test in your own application, because every wrong
+position fails quietly rather than loudly.
 
 | Move | What breaks |
 | --- | --- |
-| Client log context below the rate limiter | A refused authentication POST logs its 429 with no address and no trace id. That is the event somebody is most likely to go looking for, and it is the one that had nothing on it before the split |
-| Client log context above `UseForwardedHeaders` | The address logged is the load balancer's, on every request |
-| User log context above `UseAuthentication` | There is no principal to read, so nothing is ever set |
+| Client log context below the rate limiter | A refused authentication POST logs its 429 with no address and no trace id. That is the event somebody is most likely to go looking for |
+| Client log context above `UseForwardedHeaders` | Every request logs the balancer's address |
+| User log context above `UseAuthentication` | There is no principal to read, so nothing is set |
 | User log context below `UseAuthorization` | An authorization refusal no longer names who was refused |
-| Request logging below `UseStaticFiles` | Nothing breaks, but `RequestLogLevel` stops earning its place |
+| Request logging below `UseStaticFiles` | Nothing breaks, but static files stop being demoted to Verbose |
 
-## What it sets
+Exception handling and HTTPS redirection go below the client context. Request logging goes
+above the components whose responses you want it to record. Do not merge the two context
+middleware: the user one can only sit between authentication and authorization, and that is
+below anything that short-circuits a request.
+
+## What gets logged
 
 | Property | Where from |
 | --- | --- |
 | `ClientIp` | `Connection.RemoteIpAddress` after forwarded headers, rendered by `ClientAddress.Describe` |
-| `TraceId` | `Activity.Current`, as an ordinary property so a file template can print it |
-| `ForwardedFor` | The `X-Forwarded-For` the caller actually claimed, reassembled |
-| `Referer` | Scheme, host and path only |
-| `UserAgent` | Capped at 512 characters |
+| `TraceId` | `Activity.Current`, as an ordinary property |
+| `ForwardedFor` | A best-effort reconstruction of the caller's `X-Forwarded-For`. Untrusted and lossy |
+| `Referer` | Scheme, host and path. The query string and fragment are removed |
+| `UserAgent` | Capped, 512 characters by default |
 | `RequestHost`, `RequestScheme` | The request, after forwarded headers |
 | `UserId`, `UserEmail` | The principal, only when authenticated |
 
 `Application`, `Environment`, `MachineName`, `ProcessId` and `ThreadId` come from your
-enrichers; `RequestMethod`, `RequestPath`, `StatusCode` and `Elapsed` come from Serilog's own
-request logging. `LoggingContract` names all eighteen, split by who owns them.
+enrichers. `RequestMethod`, `RequestPath`, `StatusCode` and `Elapsed` come from Serilog's
+request logging. `LoggingContract` names all eighteen and splits them by which component sets
+them.
 
-### Absent, never null
+Serilog carries a trace id of its own as a built-in field on the event rather than as a
+property. `TraceId` records the same id as an ordinary property, so it appears in output
+templates and queries beside everything else, and a queued row can be matched back to the
+request that queued it.
 
-An anonymous request carries no `UserId` and no `UserEmail` at all. An absent property is
-filterable in Seq and a null one is not, so nothing here writes an empty string to keep a
-shape. The same rule applies to every header: no Referer sent means no `Referer` property.
+Successful static-file, `/healthcheck` and `/version` requests are logged at Verbose. Most
+other requests are Information. Server errors and unhandled exceptions are Error. A quiet path
+returning 4xx is still logged at Information. Verbose events only survive if your logger and
+sink levels allow them.
 
-## The three traps this package exists to hold
+### Absent, not empty
+
+Nothing here writes an empty string to keep a shape. A request with no Referer header carries
+no `Referer` property. An anonymous request carries neither user property. An authenticated
+user with no email claim carries no `UserEmail`. A claim holding an empty string counts as
+absent, in the log context and in the request summary alike.
+
+The convention exists so that "the property is missing" and "the value was blank" are not the
+same row in the log store. Query for absence rather than for an empty value.
+
+## Client addresses behind a load balancer
+
+`ClientIp` is `Connection.RemoteIpAddress` after ASP.NET Core has processed forwarded headers.
+This package formats that address for reading. It does not choose it, and it never reads a
+forwarding header to decide it.
+
+With forwarded headers configured as above, a correctly trusted single-hop balancer gives the
+client address the balancer appended. An extra entry written by the caller sits to the left of
+that one and is not taken. If the trust list does not cover the balancer, `ClientIp` stays as
+the balancer's own address, so a wrong trust list looks like every request coming from one
+place.
+
+`ClientIp` is the address at the end of that network path. It can be a NAT gateway, a VPN exit
+or another proxy, and it does not identify a person or a device.
+
+`ForwardedFor` is separate, untrusted and for reading only. A difference between it and
+`ClientIp` is a reason to look, not proof of spoofing. The reconstruction is described below
+and it loses information in ordinary cases.
+
+## The traps this package holds
 
 **`::1` is not an IPv4-mapped address.** `IPAddress.Parse("::1").IsIPv4MappedToIPv6` is
 `false` on .NET 10, measured, because mapping means the `::ffff:0:0/96` prefix and loopback is
-its own address. The mapped check alone therefore leaves every local request reading `::1`
-while the same machine over IPv4 reads `127.0.0.1`. The explicit `IPAddress.IsLoopback` test
-is what catches it, and it covers all of 127.0.0.0/8, so `127.0.0.2` renders as `127.0.0.1`
-too.
+its own address. The mapped check alone leaves every local request reading `::1` while the same
+machine over IPv4 reads `127.0.0.1`. The explicit `IPAddress.IsLoopback` test catches it, and
+it covers all of 127.0.0.0/8, so `127.0.0.2` renders as `127.0.0.1` too.
 
-The mapped check is also what stops a much worse outcome, and it is worth stating what it
-actually prevents. **`MapToIPv4` does not throw on a genuine IPv6 address. It fails silently.**
-It returns the last four bytes as a plausible, routable, completely wrong IPv4 address.
-Measured on .NET 10 in this repository's test suite:
+**`MapToIPv4` does not throw on a genuine IPv6 address. It fails silently.** It returns the
+last four bytes as a plausible, routable, completely wrong IPv4 address. Measured on .NET 10 in
+this repository's test suite:
 
 | Input | `IsIPv4MappedToIPv6` | `MapToIPv4()` |
 | --- | --- | --- |
@@ -96,59 +211,73 @@ Measured on .NET 10 in this repository's test suite:
 | `fe80::1` | `false` | `0.0.0.1` |
 | `::ffff:127.0.0.2` | `true` | `127.0.0.2` |
 
-Without the guard, every genuine IPv6 caller would be logged under a fabricated address and
-nothing would ever raise. The first sign of it would be an investigation run against an
-address that never existed. That is the argument for the guard, and the fact is pinned by a
-test rather than remembered.
+Without the `IsIPv4MappedToIPv6` guard, every genuine IPv6 caller would be logged under a
+fabricated address and nothing would raise. `3.112.115.52` in that table is not an example
+address. It is the measured output of truncating the documentation address above it.
 
-The two checks also run in a fixed order, and the order is behaviour rather than layout.
+The two checks run in a fixed order and the order is behaviour. The mapped check runs first.
 `IPAddress.IsLoopback("::ffff:127.0.0.2")` is `false` on the raw value and `true` once the
-mapping is dropped, so map-then-check gives `127.0.0.1` and check-then-map gives
-`::ffff:127.0.0.2`. That single input is the only one in the suite that discriminates the two
-orderings; every other case passes under either.
+mapping is dropped, so testing loopback first sends that caller down the mapped branch and logs
+it as `127.0.0.2` instead of `127.0.0.1`. That one input is the only case in the suite that
+tells the two orderings apart, and it is pinned by a test.
 
-**`UseForwardedHeaders` consumes the header it accepts.** Send one `X-Forwarded-For` entry and
-the middleware puts it on the connection and deletes the now-empty header, so reading the
-header afterwards produces nothing at all. One entry is exactly what a single load balancer
-sends, so the case that recorded nothing is the case production is in. `X-Original-For` is not
-the missing half either: it holds the peer that was replaced, with a port on it. Its only use
-is as a flag that the middleware acted, and the claim is recovered from the connection.
+**`UseForwardedHeaders` consumes the entries it accepts.** Send one `X-Forwarded-For` entry and
+the middleware moves it onto the connection and deletes the now empty header, so reading the
+header afterwards finds nothing. One entry is what a single load balancer sends, so the case
+that recorded nothing is the normal case. `X-Original-For` holds the peer that was replaced,
+with its port, so it is not the missing half either.
 
-**`Uri.TryCreate` accepts a bare path as a `file://` URI.** Rebuilding from its parts then
-escapes the query INTO the path rather than dropping it, so
-`/auth/resetpassword?id=live-token` becomes `file:///auth/resetpassword%3Fid=live-token` and
-the token survives. That is the one outcome referer sanitising exists to prevent, so only
-`http` and `https` take the URI route and everything else is cut by hand at the first `?` or
-`#`. It is unit-tested as a security control, not as tidying.
+`ForwardedForHeader.Claimed` therefore rebuilds an approximation: whatever is left in the
+header, plus the address the middleware settled on. Four things it cannot do, each measured:
+
+- `X-Original-For` is a hint that the middleware acted, not evidence of it. Any caller can send
+  that header. An untrusted caller sending it and no `X-Forwarded-For` is reported as having
+  forwarded itself. `ClientIp` is unaffected, because it comes off the connection.
+- A port is lost. A trusted `X-Forwarded-For: 203.0.113.42:54321` comes back as
+  `203.0.113.42`, because the port went onto `Connection.RemotePort`.
+- Only the last consumed entry is recoverable. With two trusted hops consumed,
+  `203.0.113.42,203.0.113.11` comes back as `203.0.113.42` and the middle hop is gone.
+- The recovered entry is the framework's spelling, not the caller's characters. IPv6 text is
+  normalised, and the default header names are assumed, so renaming them through
+  `ForwardedHeadersOptions` leaves only the header remainder.
+
+Treat `ForwardedFor` as a clue. Never use it for identity or access.
+
+**`Uri.TryCreate` accepts a bare path as a `file://` URI.** Rebuilding from its parts escapes
+the query into the path rather than dropping it, so `/auth/resetpassword?id=live-token` becomes
+`file:///auth/resetpassword%3Fid=live-token` and the token survives. That is the outcome referer
+sanitising exists to prevent, so only `http` and `https` take the URI route and everything else
+is cut by hand at the first `?` or `#`. It is unit-tested as a security control.
+
+The guarantee is specific: the query string and the fragment are removed. That is not general
+secret redaction. A path segment can still carry an identifier, so it is worth knowing what
+your own URLs put in a path.
 
 ## What this package must never grow
 
 No rate limiting. No throttling. No `ForwardedHeadersOptions` policy. Nothing that keys off an
-address for anything but a log property.
+address for any purpose other than a log property.
 
-Which peers to trust and how to bucket a limiter are the consuming application's decisions,
-and they are load bearing: a whole office typically leaves through one NAT address. The
-address `ClientAddress.Describe` returns is deliberately reshaped to be READABLE, which makes
-it wrong for anything that has to be stable and unique per caller. Never use it for a rate
-limit, a throttle, a cache partition, an authorisation decision or a persisted column. The
-authorisation item is in that list on purpose rather than for symmetry. An address-based gate
-is an ordinary thing to find in an application: admitting an office range, unlocking an
-administrative surface only on the local machine, or varying what a sign-in page will tell an
-unauthenticated caller. Fed this value, any of them is widened by the loopback collapse and
-moved by the mapped rewrite, and the failure is open rather than loud.
+Which peers to trust and how to bucket a limiter are the consuming application's decisions, and
+they matter: a whole office typically leaves through one NAT address.
+
+`ClientAddress.Describe` reshapes an address to be readable, which makes it wrong for anything
+that has to be stable and unique per caller. Never use its result for a rate limit, a throttle,
+a cache partition, an authorisation decision or a stored column. The authorisation item is in
+that list on purpose. An address-based gate is an ordinary thing to find in an application:
+admitting an office range, unlocking an administrative surface on the local machine, or varying
+what a sign-in page tells an unauthenticated caller. Fed this value, any of them is widened by
+the loopback collapse and moved by the mapped rewrite, and it fails open rather than loudly.
 
 For every address that arrives in native, non-mapped, non-loopback form the reshaped and raw
-strings are identical, which is what makes the mistake survive testing. Note the precise
-scope. It is NOT "every routable address": an IPv4 caller arriving on a dual-stack socket as
-`::ffff:203.0.113.42` is perfectly routable, and this helper renders it as `203.0.113.42`
-while anything calling `ToString()` on the same address renders the mapped spelling. Two
-accounts of one request agree only in the native, non-mapped, non-loopback case.
+strings are identical, which is what lets the mistake survive testing. The scope is exactly
+that, and not "every routable address": an IPv4 caller arriving on a dual-stack socket as
+`::ffff:203.0.113.42` is routable, and this helper renders it as `203.0.113.42` while
+`ToString()` on the same address gives the mapped spelling.
 
 ### Pin the call sites
 
-Rule two above is enforced by a person reading a diff, which is the weakest control in the
-set. Make it a build step instead. This is the drift check one of the source applications
-carries in its own logging document, published here so it travels with the package:
+That rule is otherwise enforced by a person reading a diff. Make it a build step instead.
 
 ```bash
 # ClientAddress.Describe is for log properties only. Two call sites, both inside this
@@ -168,57 +297,128 @@ fi
 
 In this repository the expected count is **2**: `ClientLogContextMiddleware` and
 `RequestSummaryEnricher`. In a consuming application it is usually **0**, because the
-middleware does the rendering and nothing else should be calling the helper at all; set
-`expected=0` and the check tells you the first time somebody reaches for it. Bump the number
-in the same commit as the call site, never separately, or the check stops meaning anything.
+middleware does the rendering and nothing else should call the helper at all. Set `expected=0`
+and the check reports the first time somebody reaches for it. Move the number in the same
+commit as the call site, never separately.
 
-## Configuring it
+## Options
 
-`RequestLogOptions` is deliberately small. Property NAMES are not configurable, because that
-is the divergence the package exists to end.
+`RequestLogOptions` is deliberately small. Property names are not configurable, because
+divergent names are what this package exists to end.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `UserIdClaimType` | `ClaimTypes.NameIdentifier` | Which claim carries the user id |
+| `UserEmailClaimType` | `ClaimTypes.Email` | Which claim carries the email address |
+| `FallBackToIdentityNameForEmail` | `true` | Use `Identity.Name` when the email claim is blank |
+| `UserIdSelector` | none | Replaces the id lookup entirely |
+| `UserEmailSelector` | none | Replaces the email lookup entirely |
+| `QuietPathPrefixes` | `/healthcheck`, `/version` | Successful requests under these are Verbose |
+| `QuietFileExtensions` | css, js, images, fonts and similar | Successful static files are Verbose |
+| `MaximumUserAgentLength` | 512 | Cap on the logged user agent |
+| `MaximumRefererLength` | 512 | Cap on the sanitised referer |
+| `MaximumForwardedForLength` | 256 | Cap on the reconstructed forwarding claim |
 
 ```csharp
 builder.Services.AddSolrevdevRequestLogging(options =>
 {
-    options.UserIdClaimType = ClaimTypes.NameIdentifier;   // the default
-    options.UserEmailClaimType = ClaimTypes.Email;         // the default
-    options.FallBackToIdentityNameForEmail = true;         // the default
-
-    // Or replace the reading entirely.
     options.UserEmailSelector = principal => principal.FindFirst("staff_email")?.Value;
-
     options.QuietPathPrefixes.Add("/metrics");
-    options.MaximumUserAgentLength = 512;                  // the default
 });
 ```
 
-The email fallback to `Identity.Name` exists for a measured case rather than for tidiness. A
-fourteen-day cookie issued BEFORE an application started emitting an Email claim still has to
-resolve to something, or every session issued before that change logs a null address until it
-expires. One of the three source applications also puts the address in the Name claim and has
-never issued an Email claim at all.
+The three caps must be at least 1. A cap of zero or less is rejected at startup, because zero
+means the property never appears and that reads exactly like the enricher being broken. The
+helpers themselves return nothing rather than throwing if they are given such a cap, so a
+misconfiguration cannot fail a request from inside a log enricher.
 
-The type is named `RequestLogOptions` rather than `RequestLoggingOptions` because
+`QuietPathPrefixes` is matched with `StartsWithSegments`, so `/versionhistory` is not quietened
+by `/version`.
+
+The email fallback to `Identity.Name` covers a measured case. A fourteen-day cookie issued
+before an application started emitting an Email claim still has to resolve to something, or
+every session issued before that change logs no email until it expires. One of the source
+applications puts the address in the Name claim and has never issued an Email claim.
+
+The type is `RequestLogOptions` rather than `RequestLoggingOptions` because
 `Serilog.AspNetCore` already owns that second name in the same conceptual space.
 
-## Testing your own application against the contract
+## Testing your application against the contract
+
+`LoggingContract` holds the property names as constants and as sets. The sets say which
+component owns a name. They do not say that every request carries every name.
+
+- `EnricherProperties`: what this package sets.
+- `HostProperties`: what Serilog's request logging and your enrichers set.
+- `RequiredProperties`: both of those together, the full contract.
+- `AuthenticatedProperties`: `UserId` and `UserEmail`, which must not appear on an anonymous
+  request.
+- `OptionalProperties`: the names a legitimate request can arrive without.
+
+Assert unconditionally against `RequiredProperties` minus `OptionalProperties`, then assert the
+optional names in the scenarios that actually produce them.
 
 ```csharp
 [Fact]
-public void Every_request_summary_carries_the_contract()
+public void Every_request_summary_carries_the_unconditional_contract()
 {
     var summary = /* the request summary event your test host produced */;
 
     Assert.All(
-        LoggingContract.RequiredProperties,
+        LoggingContract.RequiredProperties.Except(LoggingContract.OptionalProperties),
         name => Assert.Contains(name, summary.Properties.Keys));
 }
 ```
 
-`LoggingContract.EnricherProperties` is what this package sets and
-`LoggingContract.HostProperties` is what Serilog and your enrichers set, so a failure names
-which side is at fault. `LoggingContract.AuthenticatedProperties` must be present on a
-signed-in request and absent on an anonymous one.
+`Referer`, `UserAgent` and `ForwardedFor` are caller-supplied headers that an API client or a
+health probe will not send. `ClientIp` needs a connection, which a request built in a test does
+not have. `TraceId` needs an `Activity`. `UserId` and `UserEmail` need both an authenticated
+principal and the claim. Requiring all of them on every request fails on traffic that is doing
+nothing wrong, and the usual fix for a test like that is to start writing empty values, which
+gives up the absent-not-empty convention for a test's convenience.
+
+Worth covering in your own suite: an anonymous request, a signed-in request, an authorization
+refusal, a rate-limited request, and forwarded addresses from both a trusted and an untrusted
+peer. This package's tests prove the library. They cannot prove your deployed proxy
+configuration.
+
+### A bare DefaultHttpContext gets package defaults
+
+`RequestLogLevel.For(context, exception)` and
+`RequestSummaryEnricher.EnrichRequestSummary(diagnosticContext, context)` read their options
+from `HttpContext.RequestServices`. When that is null, or when the application wired the
+middleware without calling `AddSolrevdevRequestLogging`, they fall back to a default
+`RequestLogOptions` and say nothing about it.
+
+A `DefaultHttpContext` built in a test has no `RequestServices`. A test using these overloads
+therefore measures the package defaults while reading as though it measures your application's
+configuration. If your application clears `QuietPathPrefixes` so that `/version` keeps its
+line, the test still sees `Verbose`, and the natural conclusion from that measurement is that
+the overloads never consult DI at all.
+
+Attach the services, or pass the options:
+
+```csharp
+var services = new ServiceCollection();
+services.AddSolrevdevRequestLogging(options => options.QuietPathPrefixes.Clear());
+
+var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+context.Request.Path = "/version";
+
+Assert.Equal(LogEventLevel.Information, RequestLogLevel.For(context, null));
+```
+
+The overloads that take a `RequestLogOptions` argument have no such fallback, so use those
+when the test is about the options rather than about the wiring.
+
+The other route to the same fallback is an application that wires the middleware without
+calling `AddSolrevdevRequestLogging`, and that one is refused at startup. It used to start and
+run on package defaults it never chose, because `IOptions<RequestLogOptions>` resolves to a
+default instance whether or not the package was registered.
+
+The startup guard covers the application. It does not cover the test above, because no
+application starts there. Those are two halves of one problem and only one of them can be
+checked automatically.
 
 ## Build and test
 
@@ -228,80 +428,15 @@ dotnet test --configuration Release
 dotnet pack src/Solrevdev.Logging.AspNetCore --configuration Release
 ```
 
-The SDK is pinned by `global.json` to 10.0.100 with `rollForward: latestFeature`, matching
-the three consuming applications.
+The SDK is pinned by `global.json` to 10.0.100 with `rollForward: latestFeature`, matching the
+consuming applications. `TreatWarningsAsErrors` and `GenerateDocumentationFile` are both on, so
+a public member without XML docs fails the build.
 
-### Why these test packages
+## Maintainers
 
-`xunit.v3` 3.2.2 with `xunit.runner.visualstudio` 3.1.5 and `Microsoft.NET.Test.Sdk` 18.9.0.
-That is the combination both sibling applications run on the .NET 10 SDK today, and matching
-them means a fix proved here can be pasted into either without a framework argument. The
-xunit v4 packages move to Microsoft.Testing.Platform, which is a migration in its own right
-and not one to make inside a library that three applications are about to take a dependency
-on.
-
-`TreatWarningsAsErrors` and `GenerateDocumentationFile` are both on, so a public member
-shipped without XML docs fails the build. That is deliberate: this package exists to carry
-hard-won reasons between three applications, and a member shipped without its reason is the
-drift it was written to stop.
-
-## Publishing
-
-Releases go to nuget.org from `.github/workflows/publish.yml`, using **NuGet trusted
-publishing**. There is no long-lived API key secret in this repository. The workflow requests
-a short-lived GitHub OIDC token, nuget.org validates it against a policy registered on their
-site, and hands back a temporary API key that is valid for one hour and one push. That is why
-the `Log in to NuGet` step sits immediately before the push rather than at the top of the job,
-and why the publish job carries `id-token: write` alongside the `contents: write` it needs for
-the tag and the release. The pull-request `validate` job does not publish and does not get
-`id-token: write`.
-
-### One-time nuget.org setup
-
-This cannot be scripted. On nuget.org, click the username, choose **Trusted Publishing**, and
-add a policy:
-
-| Field | Value |
-| --- | --- |
-| Package owner | `solrevdev` |
-| Publisher | GitHub Actions |
-| Repository owner | `solrevdev` |
-| Repository | `solrevdev.logging` |
-| Workflow file | `publish.yml` — the FILE NAME only, not the `.github/workflows/` path |
-| Environment | leave empty; this workflow uses no GitHub environment |
-| Package glob | `solrevdev.Logging.*` |
-
-**Set the scope to allow pushing NEW packages, not only new versions.** This is the trap that
-breaks a first release. A policy scoped "push only new package versions" cannot publish a
-package that does not exist on nuget.org yet, and `solrevdev.Logging.AspNetCore` will be brand
-new. Create the policy allowing new packages for the first release; it can be narrowed to
-versions-only afterwards.
-
-(If the repository were private, the policy would start only temporarily active for seven
-days while nuget.org waits for a successful publish to supply the GitHub repository and owner
-ids. This repository is public, so that does not apply.)
-
-### Cutting a release
-
-The `<Version>` in the csproj is the release number. A push to `master` publishes it as it
-stands if it has no tag yet; once that version is tagged, a later push bumps the patch and a
-`workflow_dispatch` chooses minor or major. The workflow refuses to publish if `origin/master`
-moved under it, and a re-run against an existing tag is a safe retry.
-
-## Where the code came from
-
-| Piece | Source |
-| --- | --- |
-| `ClientAddress.Describe` | Two of the three, byte-identical in both |
-| Forwarded-for reconstruction | Two of the three |
-| Referer sanitising | The same two |
-| `RequestLogLevel` | All three, merged |
-| The two-middleware split | Two of the three, with the third's trace id |
-| `LoggingContract` | New, replacing three sets of hand-typed constants |
-
-## Contributing
-
-Read `CLAUDE.md`. `AGENTS.md` points at the same rules for other agents.
+Release process, publishing setup, test package choices and where the code came from are in
+[MAINTAINING.md](MAINTAINING.md). Rules for changing this repository are in
+[CLAUDE.md](CLAUDE.md), which [AGENTS.md](AGENTS.md) points at for other agents.
 
 ## Licence
 

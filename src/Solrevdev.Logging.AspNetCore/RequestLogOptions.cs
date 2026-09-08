@@ -101,8 +101,12 @@ public sealed class RequestLogOptions
     /// <summary>
     /// Reads the user's id from a principal.
     /// </summary>
+    /// <remarks>
+    /// Blank is absent. See <see cref="ResolveUserEmail"/> for why, and for what "blank"
+    /// covers.
+    /// </remarks>
     /// <param name="principal">The principal the authentication middleware settled.</param>
-    /// <returns>The id, or null when the claim is absent.</returns>
+    /// <returns>The id, or null when the claim is absent or carries no value.</returns>
     public string? ResolveUserId(ClaimsPrincipal? principal)
     {
         if (principal is null)
@@ -110,16 +114,40 @@ public sealed class RequestLogOptions
             return null;
         }
 
-        return UserIdSelector is not null
-            ? UserIdSelector(principal)
-            : principal.FindFirst(UserIdClaimType)?.Value;
+        return Blank(
+            UserIdSelector is not null
+                ? UserIdSelector(principal)
+                : principal.FindFirst(UserIdClaimType)?.Value);
     }
 
     /// <summary>
     /// Reads the user's email address from a principal.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Blank is absent, and that rule is here rather than at the two call sites because there
+    /// are two of them and they disagreed. A <c>NameIdentifier</c> claim holding an empty
+    /// string is a real thing to find in a cookie, and it used to reach the log context as
+    /// <c>UserId=""</c> on every event inside the request while the request summary, which
+    /// tested emptiness rather than nullness, left the property off. One request, two
+    /// answers, and the empty one is the one rule 3 exists to stop: a property nobody can
+    /// filter on.
+    /// </para>
+    /// <para>
+    /// Blank means null, empty, or whitespace only. Nothing else is touched: a value with
+    /// content is passed through exactly as the claim or the selector gave it, spaces and all,
+    /// because trimming an identifier is how you stop matching it. A selector returning an
+    /// empty string is treated the same way as an empty claim, so switching to one cannot
+    /// change what an absent user looks like.
+    /// </para>
+    /// <para>
+    /// A blank email claim also falls through to <c>Identity.Name</c> when
+    /// <see cref="FallBackToIdentityNameForEmail"/> is set, which is what the fallback was
+    /// always for.
+    /// </para>
+    /// </remarks>
     /// <param name="principal">The principal the authentication middleware settled.</param>
-    /// <returns>The address, or null when neither the claim nor the fallback is present.</returns>
+    /// <returns>The address, or null when neither the claim nor the fallback has a value.</returns>
     public string? ResolveUserEmail(ClaimsPrincipal? principal)
     {
         if (principal is null)
@@ -129,13 +157,16 @@ public sealed class RequestLogOptions
 
         if (UserEmailSelector is not null)
         {
-            return UserEmailSelector(principal);
+            return Blank(UserEmailSelector(principal));
         }
 
-        var email = principal.FindFirst(UserEmailClaimType)?.Value;
+        var email = Blank(principal.FindFirst(UserEmailClaimType)?.Value);
 
-        return !string.IsNullOrEmpty(email) || !FallBackToIdentityNameForEmail
+        return email is not null || !FallBackToIdentityNameForEmail
             ? email
-            : principal.Identity?.Name;
+            : Blank(principal.Identity?.Name);
     }
+
+    private static string? Blank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 }

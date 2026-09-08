@@ -64,14 +64,34 @@ public class ClientAddressTests
     {
         // The highest-value test in this file. It is the ONLY input that discriminates the
         // order of the mapped check and the loopback test: IsLoopback is false on the raw
-        // ::ffff:127.0.0.2 and true once the mapping is dropped, so map-then-check gives
-        // 127.0.0.1 and check-then-map gives ::ffff:127.0.0.2. Every other case in this file
+        // ::ffff:127.0.0.2 and true once the mapping is dropped. Every other case in this file
         // passes under either ordering, so without this test somebody can swap the two lines
         // as a tidy and silently change what a mapped loopback caller is logged under.
-        Assert.False(IPAddress.IsLoopback(IPAddress.Parse("::ffff:127.0.0.2")));
-        Assert.True(IPAddress.Parse("::ffff:127.0.0.2").IsIPv4MappedToIPv6);
+        var mappedLoopback = IPAddress.Parse("::ffff:127.0.0.2");
 
-        Assert.Equal("127.0.0.1", ClientAddress.Describe(IPAddress.Parse("::ffff:127.0.0.2")));
+        Assert.False(IPAddress.IsLoopback(mappedLoopback));
+        Assert.True(mappedLoopback.IsIPv4MappedToIPv6);
+
+        Assert.Equal("127.0.0.1", ClientAddress.Describe(mappedLoopback));
+
+        // What the swap would produce, measured rather than described. Testing loopback on the
+        // raw value first sends this address down the mapped branch, so the caller is logged
+        // as 127.0.0.2: still dotted, still readable, and no longer the same string as every
+        // other loopback caller.
+        Assert.Equal("127.0.0.2", SwappedOrder(mappedLoopback));
+    }
+
+    /// <summary>
+    /// <see cref="ClientAddress.Describe"/> with the two checks the other way round.
+    /// </summary>
+    private static string SwappedOrder(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address))
+        {
+            return IPAddress.Loopback.ToString();
+        }
+
+        return address.IsIPv4MappedToIPv6 ? address.MapToIPv4().ToString() : address.ToString();
     }
 
     [Fact]

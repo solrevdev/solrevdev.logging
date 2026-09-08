@@ -41,9 +41,14 @@ public static class ApplicationBuilderExtensions
     /// </remarks>
     /// <param name="app">The <see cref="IApplicationBuilder"/>.</param>
     /// <returns>The <see cref="IApplicationBuilder"/>, for chaining.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddSolrevdevRequestLogging</c> was not called.
+    /// </exception>
     public static IApplicationBuilder UseSolrevdevClientLogContext(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        RequestLoggingMarkerService.ThrowIfUnregistered(app);
 
         return app.UseMiddleware<ClientLogContextMiddleware>();
     }
@@ -59,9 +64,14 @@ public static class ApplicationBuilderExtensions
     /// </remarks>
     /// <param name="app">The <see cref="IApplicationBuilder"/>.</param>
     /// <returns>The <see cref="IApplicationBuilder"/>, for chaining.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddSolrevdevRequestLogging</c> was not called.
+    /// </exception>
     public static IApplicationBuilder UseSolrevdevUserLogContext(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        RequestLoggingMarkerService.ThrowIfUnregistered(app);
 
         return app.UseMiddleware<UserLogContextMiddleware>();
     }

@@ -13,6 +13,7 @@ namespace Solrevdev.Logging.AspNetCore.Tests;
 /// actually puts on an event, which is the half a pipeline-order test in a consuming
 /// application cannot see.
 /// </summary>
+[Collection(SerilogLoggerCollection.Name)]
 public class LogContextMiddlewareTests
 {
     private static async Task<LogEvent> EventRaisedInside(Func<RequestDelegate, HttpContext, Task> run, HttpContext context)
@@ -124,6 +125,54 @@ public class LogContextMiddlewareTests
 
         Assert.Equal("42", Property(logEvent, LoggingContract.UserId));
         Assert.DoesNotContain(LoggingContract.UserEmail, logEvent.Properties.Keys);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_claim_holding_no_value_pushes_no_property(string claimValue)
+    {
+        // The measured mismatch. An authenticated NameIdentifier claim holding an empty string
+        // used to push UserId="" onto every event inside the request while the request summary
+        // omitted the property, so one request said two different things and the log-context
+        // answer was the one nobody can filter on.
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, claimValue)],
+                "TestAuth"))
+        };
+
+        var logEvent = await EventRaisedInside(
+            (next, ctx) => Middleware(next, new RequestLogOptions { FallBackToIdentityNameForEmail = false })
+                .InvokeAsync(ctx),
+            context);
+
+        Assert.DoesNotContain(LoggingContract.UserId, logEvent.Properties.Keys);
+        Assert.DoesNotContain(LoggingContract.UserEmail, logEvent.Properties.Keys);
+    }
+
+    [Fact]
+    public async Task A_selector_returning_an_empty_string_pushes_no_property()
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, "42")],
+                "TestAuth"))
+        };
+
+        var options = new RequestLogOptions
+        {
+            UserIdSelector = _ => string.Empty,
+            UserEmailSelector = _ => null
+        };
+
+        var logEvent = await EventRaisedInside(
+            (next, ctx) => Middleware(next, options).InvokeAsync(ctx),
+            context);
+
+        Assert.DoesNotContain(LoggingContract.UserId, logEvent.Properties.Keys);
     }
 
     private static UserLogContextMiddleware Middleware(RequestDelegate next, RequestLogOptions? options = null) =>

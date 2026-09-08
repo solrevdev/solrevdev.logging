@@ -42,4 +42,40 @@ public class RegistrationTests
         Assert.Throws<ArgumentNullException>(() => ApplicationBuilderExtensions.UseSolrevdevUserLogContext(null!));
         Assert.Throws<ArgumentNullException>(() => SerilogRequestLoggingExtensions.UseSolrevdevRequestLogging(null!));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_header_cap_that_keeps_nothing_is_refused_at_registration(int maximumLength)
+    {
+        // The caps are the application's own configuration, never a caller's, so startup is
+        // the useful place to refuse one. Before this, a negative cap surfaced as an
+        // ArgumentOutOfRangeException thrown out of a log enricher on whichever request first
+        // carried a user agent, and a zero cap surfaced as a property that silently never
+        // appeared, which reads exactly like the enricher being broken.
+        var services = new ServiceCollection();
+        services.AddSolrevdevRequestLogging(options => options.MaximumUserAgentLength = maximumLength);
+
+        var error = Assert.Throws<OptionsValidationException>(
+            () => services.BuildServiceProvider().GetRequiredService<IOptions<RequestLogOptions>>().Value);
+
+        Assert.Contains(nameof(RequestLogOptions.MaximumUserAgentLength), error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Each_cap_is_named_by_the_failure_it_causes()
+    {
+        var services = new ServiceCollection();
+        services.AddSolrevdevRequestLogging(options =>
+        {
+            options.MaximumRefererLength = 0;
+            options.MaximumForwardedForLength = -5;
+        });
+
+        var error = Assert.Throws<OptionsValidationException>(
+            () => services.BuildServiceProvider().GetRequiredService<IOptions<RequestLogOptions>>().Value);
+
+        Assert.Contains(nameof(RequestLogOptions.MaximumRefererLength), error.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(RequestLogOptions.MaximumForwardedForLength), error.Message, StringComparison.Ordinal);
+    }
 }

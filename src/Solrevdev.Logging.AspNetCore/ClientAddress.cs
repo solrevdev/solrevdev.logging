@@ -27,9 +27,10 @@ namespace Solrevdev.Logging.AspNetCore;
 /// <para>
 /// <strong>The mapped check runs BEFORE the loopback test, and that order is behaviour rather
 /// than layout.</strong> <c>IPAddress.IsLoopback("::ffff:127.0.0.2")</c> is <c>false</c> on the
-/// raw value and <c>true</c> once the mapping is dropped, so swapping the two lines as a tidy
-/// changes what a mapped loopback caller is logged under. That single input is pinned by a
-/// test; every other input passes under either order.
+/// raw value and <c>true</c> once the mapping is dropped, so testing loopback first sends that
+/// caller down the mapped branch instead and logs it as <c>127.0.0.2</c> rather than
+/// <c>127.0.0.1</c>. Measured on .NET 10 and pinned by a test, because the difference is one
+/// digit on one input and every other input passes under either order.
 /// </para>
 /// <para>
 /// <strong>The <see cref="IPAddress.IsIPv4MappedToIPv6"/> guard exists because

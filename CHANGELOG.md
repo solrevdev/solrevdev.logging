@@ -4,6 +4,74 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-08
+
+Corrections from an independent review of 1.0.0. No public name was removed or renamed.
+
+### Added
+
+- A startup guard on `UseSolrevdevClientLogContext`, `UseSolrevdevUserLogContext` and
+  `UseSolrevdevRequestLogging`. Each now throws `InvalidOperationException` when
+  `AddSolrevdevRequestLogging` was not called, using the framework's wording: "Unable to find
+  the required services. Please add all the required services by calling
+  'IServiceCollection.AddSolrevdevRequestLogging' in the application startup code." It uses the
+  marker-service pattern ASP.NET Core uses for routing, MVC and SignalR, because
+  `IOptions<RequestLogOptions>` cannot answer the question: every host calls `AddOptions`, so
+  the options resolve to a default instance whether or not this package was registered.
+- `LoggingContract.OptionalProperties`, the property names a legitimate request can arrive
+  without, so a consuming application asserts `RequiredProperties` minus this set
+  unconditionally and the rest per scenario. `RequiredProperties` and
+  `AuthenticatedProperties` are unchanged.
+- Startup validation of the three header caps in `AddSolrevdevRequestLogging`, through
+  `ValidateOnStart`. A cap of zero or less is now refused with a message naming the option.
+- Regression tests pinning how `RequestLogLevel.For(context, exception)` and
+  `RequestSummaryEnricher.EnrichRequestSummary` find their options: the application's
+  configuration through a populated `RequestServices`, and the package defaults when there is
+  no `RequestServices` or no registration.
+- Regression tests that run the real `ForwardedHeadersMiddleware` and assert real Serilog
+  events: trusted single-hop forwarding, a forged extra entry, an untrusted direct peer, a
+  forged `X-Original-For`, forwarding not enabled, a dual-stack proxy peer, a mapped client
+  entry, a genuine IPv6 client, a client entry with a port, two trusted hops, a short circuit
+  before the user context, and which log scope is open when the summary is written.
+
+### Fixed
+
+- A `MaximumUserAgentLength`, `MaximumRefererLength` or `MaximumForwardedForLength` of less
+  than zero threw `ArgumentOutOfRangeException` from inside the log enricher, during a
+  request. The helpers now return no value for a cap that keeps nothing, and the
+  misconfiguration is refused at startup instead.
+- An authenticated claim holding an empty string put `UserId=""` on every event inside the
+  request while the request summary omitted the property. Blank now means absent in both
+  places, including for a custom selector that returns an empty string. A value with content
+  is never trimmed.
+
+### Changed
+
+- **An application that wires this package's middleware without calling
+  `AddSolrevdevRequestLogging` now fails at startup instead of running.** This is deliberate.
+  Before it, such an application started, served requests and logged every one of them with
+  package defaults it never chose, and nothing anywhere said so. The fix is to add the missing
+  `builder.Services.AddSolrevdevRequestLogging()` call. The guard covers the application only.
+  It cannot cover a unit test on a bare `DefaultHttpContext`, which still measures package
+  defaults silently, because no application starts there.
+- The silent fallback to package defaults in `RequestLogLevel.For(context, exception)` and
+  `RequestSummaryEnricher.EnrichRequestSummary` is documented rather than left to be
+  discovered: what triggers it, that a test on a bare `DefaultHttpContext` measures package
+  defaults, and that the options-taking overloads are the way to be certain. The behaviour is
+  unchanged.
+- `ForwardedFor` is documented as what it is: a capped, best-effort reconstruction of untrusted
+  forwarding information. `X-Original-For` is a hint that the middleware acted rather than
+  evidence of it, and the reconstruction loses ports, intermediate consumed hops and the
+  caller's own spelling of an address. The algorithm is unchanged, so the property's value is
+  unchanged. `ClientIp` was and remains taken from the connection.
+- The README is rewritten for somebody consuming the package, and now covers the two
+  prerequisites it never mentioned: `Enrich.FromLogContext()` on the application's own logger,
+  and enabling and configuring forwarded-header processing with `KnownIPNetworks`. Release and
+  maintainer material moved to `MAINTAINING.md`.
+- The release workflow pushes the git tag before the package, and a retry against an existing
+  tag now checks that tag out before packing. This does not make nuget.org and Git atomic. It
+  chooses which side is left dangling when a release does not complete.
+
 ## [1.0.0] - 2026-09-08
 
 First release. Extracted from three internal ASP.NET Core applications that had each

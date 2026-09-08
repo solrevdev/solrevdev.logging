@@ -209,4 +209,111 @@ public class RequestSummaryEnricherTests
 
         Assert.Equal("Mozilla/", recorder.String(LoggingContract.UserAgent));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_claim_holding_no_value_sets_no_property(string claimValue)
+    {
+        // Blank is absent, and it has to be absent at BOTH call sites. The log context used to
+        // test for null and the summary for emptiness, so one request answered the same
+        // question two ways and one of the answers was a property nobody can filter on.
+        var context = Request();
+        context.User = Principal(
+            new Claim(ClaimTypes.NameIdentifier, claimValue),
+            new Claim(ClaimTypes.Email, claimValue));
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, new RequestLogOptions());
+
+        Assert.DoesNotContain(LoggingContract.UserId, recorder.Properties.Keys);
+        Assert.DoesNotContain(LoggingContract.UserEmail, recorder.Properties.Keys);
+    }
+
+    [Fact]
+    public void A_selector_returning_an_empty_string_sets_no_property_either()
+    {
+        // Switching to a selector must not change what an absent user looks like.
+        var context = Request(authenticated: true);
+
+        var options = new RequestLogOptions
+        {
+            UserIdSelector = _ => string.Empty,
+            UserEmailSelector = _ => "  "
+        };
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, options);
+
+        Assert.DoesNotContain(LoggingContract.UserId, recorder.Properties.Keys);
+        Assert.DoesNotContain(LoggingContract.UserEmail, recorder.Properties.Keys);
+    }
+
+    [Fact]
+    public void A_blank_email_claim_still_reaches_the_identity_name_fallback()
+    {
+        var context = Request();
+        context.User = Principal(
+            new Claim(ClaimTypes.NameIdentifier, "42"),
+            new Claim(ClaimTypes.Email, "   "),
+            new Claim(ClaimTypes.Name, "old-cookie@example.com"));
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, new RequestLogOptions());
+
+        Assert.Equal("old-cookie@example.com", recorder.String(LoggingContract.UserEmail));
+    }
+
+    [Fact]
+    public void An_identifier_with_content_is_never_trimmed()
+    {
+        // Blank means absent; it does not mean "tidy up the ones that have content". Trimming
+        // an identifier is how you stop matching it.
+        var context = Request(authenticated: true);
+
+        var options = new RequestLogOptions { UserIdSelector = _ => " 42 " };
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, options);
+
+        Assert.Equal(" 42 ", recorder.String(LoggingContract.UserId));
+    }
+
+    [Fact]
+    public void An_authenticated_request_with_no_id_claim_carries_only_the_email()
+    {
+        // A signed-in principal is not a promise of either user property. A contract test that
+        // demanded both would fail here on a request that is doing nothing wrong.
+        var context = Request();
+        context.User = Principal(new Claim(ClaimTypes.Email, "someone@example.com"));
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, new RequestLogOptions());
+
+        Assert.DoesNotContain(LoggingContract.UserId, recorder.Properties.Keys);
+        Assert.Equal("someone@example.com", recorder.String(LoggingContract.UserEmail));
+    }
+
+    [Fact]
+    public void An_anonymous_request_without_optional_headers_carries_only_what_it_has()
+    {
+        // A health probe or an API client: no referer, no user agent, no forwarding header and
+        // nobody signed in. Everything absent here is in LoggingContract.OptionalProperties,
+        // which is what stops a consumer asserting the whole contract on traffic like this.
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("app.example.com");
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.42");
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, new RequestLogOptions());
+
+        Assert.Equal(
+            new[] { LoggingContract.ClientIp, LoggingContract.RequestHost, LoggingContract.RequestScheme }.Order(),
+            recorder.Properties.Keys.Order());
+
+        Assert.All(
+            LoggingContract.EnricherProperties.Except(recorder.Properties.Keys),
+            name => Assert.Contains(name, LoggingContract.OptionalProperties));
+    }
 }

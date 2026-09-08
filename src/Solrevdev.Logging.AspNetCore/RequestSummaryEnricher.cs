@@ -12,17 +12,24 @@ namespace Solrevdev.Logging.AspNetCore;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The summary is written by <c>UseSerilogRequestLogging</c>, which sits near the OUTSIDE of
-/// the pipeline, so by the time it writes, the <c>LogContext</c> scopes pushed by
-/// <see cref="ClientLogContextMiddleware"/> and <see cref="UserLogContextMiddleware"/> further
-/// in have already been disposed. The diagnostic context is the seam Serilog provides for
-/// exactly this, and it reads the principal that the authentication middleware settled
-/// further in.
+/// The summary is written by <c>UseSerilogRequestLogging</c> after the rest of the pipeline
+/// has returned, so every <c>LogContext</c> scope pushed BELOW it has already been disposed.
+/// In the documented order that is <see cref="UserLogContextMiddleware"/>: the user is gone by
+/// the time the summary is written, which is why this reads the principal off the
+/// <see cref="HttpContext"/> instead.
 /// </para>
 /// <para>
-/// That disposal is why nothing here may rely on <c>LogContext</c>. A property pushed by
-/// inner middleware and only ever read on the summary event would never land, and would fail
-/// silently: the query returns nothing and looks like quiet traffic.
+/// <see cref="ClientLogContextMiddleware"/> sits ABOVE request logging in that same order, so
+/// its scope is still open and its two properties would land on the summary anyway. They are
+/// set here regardless, and deliberately: an application is free to wire the summary without
+/// the client middleware, and a property that appears only when two components are both
+/// present is the drift this package exists to end. Setting the same value twice costs
+/// nothing.
+/// </para>
+/// <para>
+/// Nothing here may DEPEND on <c>LogContext</c>. A property pushed by inner middleware and
+/// only ever read on the summary event would never land, and would fail silently: the query
+/// returns nothing and looks like quiet traffic.
 /// </para>
 /// </remarks>
 public static class RequestSummaryEnricher
@@ -33,11 +40,30 @@ public static class RequestSummaryEnricher
     /// The delegate handed to <c>options.EnrichDiagnosticContext</c>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Options are read from the request services, so an application that called
-    /// <c>AddSolrevdevRequestLogging</c> gets its own configuration and one that did not gets
-    /// the defaults. Prefer
+    /// <c>AddSolrevdevRequestLogging</c> gets its own configuration. Prefer
     /// <see cref="SerilogRequestLoggingExtensions.UseSolrevdevRequestLogging"/>, which wires
     /// this for you.
+    /// </para>
+    /// <para>
+    /// <strong>It falls back to the package defaults, silently, when the options cannot be
+    /// resolved.</strong> That is either a null <c>HttpContext.RequestServices</c> or an
+    /// application that wired the middleware without calling
+    /// <c>AddSolrevdevRequestLogging</c>. It matters most in a test: a bare
+    /// <c>DefaultHttpContext</c> has no <c>RequestServices</c>, so a test using this overload
+    /// measures the package defaults while appearing to measure the application's own caps and
+    /// selectors. Give the context a <c>RequestServices</c> built from the application's
+    /// registrations, or call
+    /// <see cref="Enrich(IDiagnosticContext, HttpContext, RequestLogOptions)"/> with the
+    /// options in hand.
+    /// </para>
+    /// <para>
+    /// The other way to reach the fallback, an application that wired the middleware without
+    /// calling <c>AddSolrevdevRequestLogging</c>, is refused at startup by
+    /// <see cref="RequestLoggingMarkerService"/>. That guard covers the application. It cannot
+    /// cover the test above, because no application starts there.
+    /// </para>
     /// </remarks>
     /// <param name="diagnosticContext">The <see cref="IDiagnosticContext"/> for the request.</param>
     /// <param name="httpContext">The <see cref="HttpContext"/>.</param>
@@ -78,14 +104,15 @@ public static class RequestSummaryEnricher
         var clientIp = ClientAddress.Describe(httpContext.Connection?.RemoteIpAddress);
         Set(diagnosticContext, LoggingContract.ClientIp, clientIp);
 
-        // What the caller CLAIMED, kept next to what the framework SETTLED ON above. A value
-        // here that does not match ClientIp is the thing worth looking at: either
-        // KnownNetworks does not cover the balancer, or somebody wrote an extra entry to name
-        // themselves.
+        // A best-effort reconstruction of what the caller CLAIMED, kept next to what the
+        // framework SETTLED ON above. A value here that does not match ClientIp is worth
+        // looking at, and is not by itself proof of anything: the trusted networks may not
+        // cover the balancer, somebody may have written an extra entry to name themselves, or
+        // the reconstruction may simply have lost a port or a hop. ForwardedForHeader.Claimed
+        // lists what it loses.
         //
-        // Deliberately NOT through ClientAddress. The consumed entry is put back as the caller
-        // wrote it, because this property is the claim rather than the settled address, and a
-        // claim rewritten before it is recorded is not evidence of anything.
+        // Deliberately NOT through ClientAddress. This property is the claim rather than the
+        // settled address, and reshaping a claim before recording it makes it worth even less.
         Set(
             diagnosticContext,
             LoggingContract.ForwardedFor,
@@ -122,18 +149,21 @@ public static class RequestSummaryEnricher
 
         // Absent rather than null, the same rule the log context follows. A claim can be
         // missing from an old cookie, and an empty property is harder to filter on than one
-        // that is not there.
+        // that is not there. An authenticated principal reaching here with no id claim, or
+        // with one holding an empty string, therefore still logs no UserId: the resolvers
+        // treat blank as absent so both call sites give one answer.
         Set(diagnosticContext, LoggingContract.UserId, options.ResolveUserId(httpContext.User));
         Set(diagnosticContext, LoggingContract.UserEmail, options.ResolveUserEmail(httpContext.User));
     }
 
     /// <summary>
     /// Sets a property only when there is a value, so an absent header stays absent rather
-    /// than becoming an empty string nobody can filter on.
+    /// than becoming an empty string nobody can filter on. Whitespace counts as absent, which
+    /// is the same rule <c>HeaderValue.Truncate</c> and the user resolvers follow.
     /// </summary>
     private static void Set(IDiagnosticContext diagnosticContext, string propertyName, string? value)
     {
-        if (!string.IsNullOrEmpty(value))
+        if (!string.IsNullOrWhiteSpace(value))
         {
             diagnosticContext.Set(propertyName, value);
         }

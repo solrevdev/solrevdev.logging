@@ -63,6 +63,11 @@ public sealed class UserLogContextMiddleware(RequestDelegate next, IOptions<Requ
             return;
         }
 
+        // Null here means absent, and the resolvers return null for a claim holding an empty
+        // string as well as for one that is missing. That is deliberate: the request summary
+        // omits a blank user, so a middleware that pushed UserId="" would have one request
+        // answering the same question two ways, and the empty answer is the one nobody can
+        // filter on.
         var userId = _options.ResolveUserId(context.User);
         var userEmail = _options.ResolveUserEmail(context.User);
 

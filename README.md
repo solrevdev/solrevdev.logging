@@ -130,9 +130,45 @@ Which peers to trust and how to bucket a limiter are the consuming application's
 and they are load bearing: a whole office typically leaves through one NAT address. The
 address `ClientAddress.Describe` returns is deliberately reshaped to be READABLE, which makes
 it wrong for anything that has to be stable and unique per caller. Never use it for a rate
-limit, a throttle, a cache partition, an authorisation decision or a persisted column. For
-every routable address the reshaped and raw strings are identical, which is what makes the
-mistake survive testing.
+limit, a throttle, a cache partition, an authorisation decision or a persisted column. The
+authorisation case is real rather than illustrative: one of the source applications gates a
+credential hint on the caller's address, and a helper that collapses all of 127.0.0.0/8 into
+one string is not the input for that decision.
+
+For every address that arrives in native, non-mapped, non-loopback form the reshaped and raw
+strings are identical, which is what makes the mistake survive testing. Note the precise
+scope. It is NOT "every routable address": an IPv4 caller arriving on a dual-stack socket as
+`::ffff:203.0.113.42` is perfectly routable, and this helper renders it as `203.0.113.42`
+while anything calling `ToString()` on the same address renders the mapped spelling. Two
+accounts of one request agree only in the native, non-mapped, non-loopback case.
+
+### Pin the call sites
+
+Rule two above is enforced by a person reading a diff, which is the weakest control in the
+set. Make it a build step instead. This is the drift check one of the source applications
+carries in its own logging document, published here so it travels with the package:
+
+```bash
+# ClientAddress.Describe is for log properties only. Two call sites, both inside this
+# package's own middleware. A third is somebody extending it into a partition key, a
+# cache key, an authorisation decision or a database column, which is the one mistake
+# that survives testing because the strings match for every native, non-mapped caller.
+expected=2
+actual=$(grep -rc --include='*.cs' 'ClientAddress\.Describe(' src \
+  | awk -F: '{ n += $2 } END { print n + 0 }')
+
+if [ "$actual" != "$expected" ]; then
+  echo "ClientAddress.Describe call sites: $actual, expected $expected" >&2
+  echo "A new call site needs a reason. See rule 2 in CLAUDE.md." >&2
+  exit 1
+fi
+```
+
+In this repository the expected count is **2**: `ClientLogContextMiddleware` and
+`RequestSummaryEnricher`. In a consuming application it is usually **0**, because the
+middleware does the rendering and nothing else should be calling the helper at all; set
+`expected=0` and the check tells you the first time somebody reaches for it. Bump the number
+in the same commit as the call site, never separately, or the check stops meaning anything.
 
 ## Configuring it
 

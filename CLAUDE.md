@@ -51,9 +51,14 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
 
 2. **`ClientAddress.Describe` is for log properties only.** Its output is reshaped to be
    readable, which makes it wrong for anything needing an address that is stable and unique
-   per caller. For every routable address the reshaped and the raw string are IDENTICAL, which
-   is exactly what lets this mistake survive testing and reach production. Never call it from
-   a partition key, a cache key, an authorisation decision or a persisted column.
+   per caller. For every address that arrives in native, non-mapped, non-loopback form the
+   reshaped and the raw string are IDENTICAL, which is exactly what lets this mistake survive
+   testing and reach production. Note the precise scope: a mapped address is routable and does
+   NOT render identically, so "for every routable address" would be wrong. Never call it from
+   a partition key, a cache key, an authorisation decision or a persisted column. The
+   authorisation case is real rather than illustrative: one of the source applications gates a
+   credential hint on the caller's address. The README documents a grep-count drift check
+   that fails loudly when a third call site appears; keep it accurate.
 
 3. **Absent, never null.** Nothing here writes an empty string to keep a shape. An anonymous
    request carries no `UserId` and no `UserEmail` at all, and a request with no Referer carries
@@ -99,6 +104,12 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
 11. **Comments carry the measurement, not the conclusion.** The ones ported from the three
     applications record what was observed on a running site. Do not compress them into a
     restatement of the code.
+
+12. **The call-site count for `ClientAddress.Describe` is pinned.** Exactly two invocations in
+    `src`, in `ClientLogContextMiddleware` and `RequestSummaryEnricher`. A third is how rule 2
+    gets broken, so the README publishes the grep as a convention for consumers and the same
+    grep applies here. If a change adds a call site, it needs a reason in the commit message
+    and the expected count in the README moves in the same commit.
 
 ## Commits
 

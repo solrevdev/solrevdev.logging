@@ -50,7 +50,9 @@ No rate limiting, no throttling, no `ForwardedHeadersOptions` policy, and nothin
 off an address for anything but a log property. Those are the consuming application's
 decisions. The address this package renders is reshaped to be readable, which is exactly
 wrong for a partition key: never use it for a rate limit, a throttle, a cache partition, an
-authorisation decision or a persisted column.
+authorisation decision or a persisted column. It reads identically to the raw address for
+every caller arriving in native, non-mapped, non-loopback form, which is what lets that
+mistake survive testing.
 
 Full documentation: https://github.com/solrevdev/solrevdev.logging
 

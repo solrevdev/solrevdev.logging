@@ -33,8 +33,12 @@ namespace Solrevdev.Logging.AspNetCore;
 /// <para>
 /// The address is rendered through <see cref="ClientAddress.Describe"/> because a log property
 /// is read by a person. A rate limiter's partition key and any stored column must NOT be, and
-/// that is deliberate: for every routable address the strings are identical, and they differ
-/// only in how loopback and an IPv4-mapped address are spelled.
+/// that is deliberate: for every address that arrives in native, non-mapped, non-loopback form
+/// the reshaped and the raw strings are identical, and they differ only in how loopback and an
+/// IPv4-mapped address are spelled. A mapped address is still routable, so the two accounts of
+/// one request do NOT agree everywhere a caller is reachable: an IPv4 caller arriving on a
+/// dual-stack socket as <c>::ffff:203.0.113.42</c> appears here as <c>203.0.113.42</c> and
+/// as the mapped spelling anywhere that calls <c>ToString()</c> directly.
 /// </para>
 /// </remarks>
 /// <param name="next">The next <see cref="RequestDelegate"/> in the pipeline.</param>

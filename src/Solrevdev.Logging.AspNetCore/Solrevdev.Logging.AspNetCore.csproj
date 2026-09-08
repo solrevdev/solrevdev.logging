@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Solrevdev.Logging.AspNetCore</RootNamespace>
+    <AssemblyName>Solrevdev.Logging.AspNetCore</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Every public member needs XML docs or the build fails. That is deliberate:
+         this package exists to carry hard-won reasons between three applications,
+         and a member shipped without its reason is the drift it exists to stop. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <PackageId>solrevdev.Logging.AspNetCore</PackageId>
+
+    <!-- First public release. CI bumps this; a plain push to master bumps the
+         patch, larger bumps go through workflow_dispatch. -->
+    <Version>1.0.0</Version>
+
+    <!-- NuGet metadata -->
+    <Authors>solrevdev</Authors>
+    <Company>solrevdev</Company>
+    <Product>Solrevdev.Logging.AspNetCore</Product>
+    <Copyright>Copyright (c) solrevdev</Copyright>
+    <Title>Solrevdev.Logging.AspNetCore — Serilog request logging for ASP.NET Core</Title>
+    <PackageDescription>Shared Serilog request-logging infrastructure for ASP.NET Core: a readable client address, the X-Forwarded-For the caller actually claimed, a referer with its query string stripped, static-file and probe summaries demoted to Verbose, log-context middleware split either side of the rate limiter, and a property contract each application can test against.</PackageDescription>
+    <PackageTags>serilog;logging;aspnetcore;seq;request-logging;diagnostics;middleware;observability</PackageTags>
+    <RepositoryUrl>https://github.com/solrevdev/solrevdev.logging</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/solrevdev/solrevdev.logging</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageReleaseNotes>See https://github.com/solrevdev/solrevdev.logging/blob/master/CHANGELOG.md</PackageReleaseNotes>
+
+    <!-- Ship symbols so stack traces from a published build are readable. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- where pack puts .nupkg -->
+    <PackageOutputPath>../../nupkg</PackageOutputPath>
+  </PropertyGroup>
+
+  <!-- Reproducible builds on CI only: setting this locally breaks debugging. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The version all three consuming applications are on. Serilog.AspNetCore
+         brings IDiagnosticContext, LogContext and UseSerilogRequestLogging. -->
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Solrevdev.Logging.AspNetCore.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NuGet.org strips raw HTML, so the package gets its own readme rather
+         than the GitHub one. -->
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Solrevdev.Logging.AspNetCore.Tests</RootNamespace>
+    <AssemblyName>Solrevdev.Logging.AspNetCore.Tests</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- xUnit v3 generates the entry point for its self-running test executable. -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The versions both sibling applications are on. xunit.v3 3.2.2 with
+      xunit.runner.visualstudio 3.1.5 is the combination that works on the .NET 10
+      SDK under VSTest; the xunit v4 packages move to Microsoft.Testing.Platform,
+      which is a separate migration and not one to make inside a library.
+    -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Solrevdev.Logging.AspNetCore\Solrevdev.Logging.AspNetCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

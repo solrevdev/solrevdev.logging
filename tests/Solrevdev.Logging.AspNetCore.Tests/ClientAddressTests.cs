@@ -2,6 +2,12 @@ using System.Net;
 
 namespace Solrevdev.Logging.AspNetCore.Tests;
 
+// Every address in this file is from a documentation or test range: 2001:db8::/32 (RFC 3849),
+// 203.0.113.0/24 (TEST-NET-3), 127.0.0.0/8 and fe80::/10. This repository is public and the
+// package ships these strings inside its XML doc file, so an address observed on real traffic
+// would be published as a disclosure. Never paste a live one in to make an example concrete,
+// and note that 3.112.115.52 is not an example address but the measured OUTPUT of a truncation
+// this suite pins, so it moves only if the input above it moves.
 public class ClientAddressTests
 {
     [Fact]

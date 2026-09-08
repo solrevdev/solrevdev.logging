@@ -36,8 +36,8 @@ namespace Solrevdev.Logging.AspNetCore;
 /// <see cref="IPAddress.MapToIPv4"/> fails SILENTLY.</strong> Called on a genuine IPv6 address
 /// it does not throw and it does not signal anything; it returns the last four bytes as a
 /// plausible, routable, completely wrong IPv4 address. Measured on .NET 10:
-/// <c>2001:db8:85a3::8a2e:370:7334</c> comes back as <c>3.112.115.52</c>, and both
-/// <c>::1</c> and <c>fe80::1</c> come back as <c>0.0.0.1</c>. Without the guard every genuine
+/// <c>2001:db8:85a3::8a2e:370:7334</c> comes back as <c>3.112.115.52</c>, and both <c>::1</c>
+/// and <c>fe80::1</c> come back as <c>0.0.0.1</c>. Without the guard every genuine
 /// IPv6 caller would be logged under a fabricated address and nothing would ever raise, so the
 /// first sign of it would be an investigation run against an address that never existed.
 /// </para>
@@ -48,9 +48,11 @@ namespace Solrevdev.Logging.AspNetCore;
 /// be readable, and reshaping partitions to make a log line prettier is not a trade worth
 /// making. An office typically leaves through one NAT address, so any per-address
 /// partitioning is load bearing and is changed on purpose or not at all. The authorisation
-/// case is not hypothetical: one of the source applications gates a credential hint on the
-/// caller's address, which is exactly the kind of decision a collapsed loopback range would
-/// quietly widen.
+/// item earns its place in that list: an address-based gate is an ordinary thing to find in
+/// an application, whether it admits an office range, unlocks an administrative surface on
+/// the local machine or varies what a sign-in page will tell an unauthenticated caller. Any
+/// of those, fed this value, is widened by the loopback collapse and moved by the mapped
+/// rewrite, and it fails open rather than loudly.
 /// </para>
 /// <para>
 /// For every address that arrives in native, non-mapped, non-loopback form the reshaped and

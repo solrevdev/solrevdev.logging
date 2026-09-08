@@ -131,9 +131,11 @@ and they are load bearing: a whole office typically leaves through one NAT addre
 address `ClientAddress.Describe` returns is deliberately reshaped to be READABLE, which makes
 it wrong for anything that has to be stable and unique per caller. Never use it for a rate
 limit, a throttle, a cache partition, an authorisation decision or a persisted column. The
-authorisation case is real rather than illustrative: one of the source applications gates a
-credential hint on the caller's address, and a helper that collapses all of 127.0.0.0/8 into
-one string is not the input for that decision.
+authorisation item is in that list on purpose rather than for symmetry. An address-based gate
+is an ordinary thing to find in an application: admitting an office range, unlocking an
+administrative surface only on the local machine, or varying what a sign-in page will tell an
+unauthenticated caller. Fed this value, any of them is widened by the loopback collapse and
+moved by the mapped rewrite, and the failure is open rather than loud.
 
 For every address that arrives in native, non-mapped, non-loopback form the reshaped and raw
 strings are identical, which is what makes the mistake survive testing. Note the precise

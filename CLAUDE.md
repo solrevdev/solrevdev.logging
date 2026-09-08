@@ -56,9 +56,11 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
    testing and reach production. Note the precise scope: a mapped address is routable and does
    NOT render identically, so "for every routable address" would be wrong. Never call it from
    a partition key, a cache key, an authorisation decision or a persisted column. The
-   authorisation case is real rather than illustrative: one of the source applications gates a
-   credential hint on the caller's address. The README documents a grep-count drift check
-   that fails loudly when a third call site appears; keep it accurate.
+   authorisation item is in that list on purpose: an address-based gate is an ordinary thing
+   to find in an application, and fed this value it is widened by the loopback collapse and
+   moved by the mapped rewrite, failing open rather than loudly. The README documents a
+   grep-count drift check that fails loudly when a third call site appears; keep it
+   accurate.
 
 3. **Absent, never null.** Nothing here writes an empty string to keep a shape. An anonymous
    request carries no `UserId` and no `UserEmail` at all, and a request with no Referer carries
@@ -87,9 +89,9 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
 8. **`MapToIPv4` fails silently, which is why the mapped guard exists.** On a genuine IPv6
    address it does NOT throw; it returns the last four bytes as a plausible, routable,
    completely wrong IPv4 address. Measured on .NET 10:
-   `2001:db8:85a3::8a2e:370:7334` becomes `3.112.115.52`, and `::1` and `fe80::1`
-   both become `0.0.0.1`. Never write that it throws. Without the guard every IPv6 caller would
-   log as a fabricated address and nothing would raise.
+   `2001:db8:85a3::8a2e:370:7334` becomes `3.112.115.52`, and `::1` and `fe80::1` both become
+   `0.0.0.1`. Never write that it throws. Without the guard every IPv6 caller would log as a
+   fabricated address and nothing would raise.
 
 9. **The mapped check runs BEFORE the loopback test and that order is behaviour.**
    `IPAddress.IsLoopback("::ffff:127.0.0.2")` is `false` raw and `true` after mapping, so
@@ -105,7 +107,15 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
     applications record what was observed on a running site. Do not compress them into a
     restatement of the code.
 
-12. **The call-site count for `ClientAddress.Describe` is pinned.** Exactly two invocations in
+12. **Addresses in examples, comments and tests come from documentation ranges only.**
+    `2001:db8::/32`, `203.0.113.0/24`, `127.0.0.0/8` and `fe80::/10`. The repository is public
+    and the XML doc file ships inside the package, so an address seen on real traffic is
+    published as a disclosure of whoever it belongs to. `3.112.115.52` is the exception that
+    looks like one: it is not an example but the measured output of `MapToIPv4` on the
+    documentation address above it, so it changes only when that input does, and only after
+    re-measuring.
+
+13. **The call-site count for `ClientAddress.Describe` is pinned.** Exactly two invocations in
     `src`, in `ClientLogContextMiddleware` and `RequestSummaryEnricher`. A third is how rule 2
     gets broken, so the README publishes the grep as a convention for consumers and the same
     grep applies here. If a change adds a call site, it needs a reason in the commit message

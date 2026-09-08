@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Solrevdev.Logging.AspNetCore/Solrevdev.Logging.AspNetCore.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Solrevdev.Logging.AspNetCore.Tests/Solrevdev.Logging.AspNetCore.Tests.csproj" />
+  </Folder>
+</Solution>

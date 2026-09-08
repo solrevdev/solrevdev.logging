@@ -1,0 +1,245 @@
+name: Publish NuGet (Solrevdev.Logging.AspNetCore)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+  pull_request:
+    branches: [master]
+    paths:
+      - 'src/Solrevdev.Logging.AspNetCore/**'
+      - 'tests/Solrevdev.Logging.AspNetCore.Tests/**'
+      - '.github/workflows/publish.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'src/Solrevdev.Logging.AspNetCore/**'
+      - '.github/workflows/publish.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-nuget-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PROJECT_DIR: src/Solrevdev.Logging.AspNetCore
+  TEST_PROJECT: tests/Solrevdev.Logging.AspNetCore.Tests
+  CSPROJ: src/Solrevdev.Logging.AspNetCore/Solrevdev.Logging.AspNetCore.csproj
+  NUPKG_DIR: nupkg
+  NUGET_SOURCE: https://api.nuget.org/v3/index.json
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: |
+          dotnet restore "$PROJECT_DIR"
+          dotnet restore "$TEST_PROJECT"
+
+      - name: Build
+        run: dotnet build "$PROJECT_DIR" --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test "$TEST_PROJECT" --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack "$PROJECT_DIR" --configuration Release --no-build
+
+  publish:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Determine and bump version
+        id: bump
+        shell: bash
+        env:
+          REQUESTED_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$CSPROJ")
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Current version is not a three-part semantic version: $CURRENT" >&2
+            exit 1
+          fi
+
+          MAJOR=${BASH_REMATCH[1]}
+          MINOR=${BASH_REMATCH[2]}
+          PATCH=${BASH_REMATCH[3]}
+          BUMP=${REQUESTED_BUMP:-patch}
+
+          # The csproj version is the release number. If it has no tag yet it
+          # ships as it stands, so raising it by hand is how you choose a minor
+          # or a major. Only once that version has been released does a push
+          # bump, which is what stops a later run pushing a version NuGet
+          # already has.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$CURRENT" >/dev/null 2>&1; then
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+              *)
+                echo "Unsupported version bump: $BUMP" >&2
+                exit 1
+                ;;
+            esac
+            VERSION="$MAJOR.$MINOR.$PATCH"
+            echo "v$CURRENT is already released; bumping $BUMP."
+          else
+            VERSION="$CURRENT"
+            echo "v$CURRENT has not been released; publishing the csproj version as-is."
+          fi
+
+          TAG="v$VERSION"
+          if [[ "$VERSION" != "$CURRENT" ]]; then
+            sed -i "s|<Version>$CURRENT</Version>|<Version>$VERSION</Version>|" "$CSPROJ"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Current version: $CURRENT"
+          echo "Release version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check release state
+        id: release-state
+        shell: bash
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          REMOTE_MASTER=$(git ls-remote origin refs/heads/master | cut -f1)
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            TAGGED_VERSION=$(git show "$TAG:$CSPROJ" | sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p')
+            if [[ "v$TAGGED_VERSION" != "$TAG" ]]; then
+              echo "Existing tag $TAG does not contain version $TAGGED_VERSION." >&2
+              exit 1
+            fi
+            echo "Tag $TAG already exists; this is a safe retry."
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "$REMOTE_MASTER" != "$GITHUB_SHA" ]]; then
+              echo "origin/master moved from $GITHUB_SHA to $REMOTE_MASTER; refusing to publish." >&2
+              exit 1
+            fi
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore
+        run: |
+          dotnet restore "$PROJECT_DIR"
+          dotnet restore "$TEST_PROJECT"
+
+      - name: Build
+        run: dotnet build "$PROJECT_DIR" --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test "$TEST_PROJECT" --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack "$PROJECT_DIR" --configuration Release --no-build
+
+      - name: Verify package
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE="$NUPKG_DIR/solrevdev.Logging.AspNetCore.$VERSION.nupkg"
+          if [[ ! -f "$PACKAGE" ]]; then
+            echo "Expected package was not created: $PACKAGE" >&2
+            exit 1
+          fi
+          echo "path=$PACKAGE" >> "$GITHUB_OUTPUT"
+
+      # Trusted publishing. This exchanges the job's GitHub OIDC token for a
+      # nuget.org key that lasts one hour and is good for one push, so there is
+      # no long-lived NUGET_API_KEY secret in this repository. It runs LATE, in
+      # the step before the push, because of that hour. `id-token: write` on the
+      # job above is what makes the exchange possible at all; without it the
+      # request fails.
+      - name: Log in to NuGet
+        id: nuget
+        uses: NuGet/login@v1
+        with:
+          user: solrevdev
+
+      - name: Publish to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
+          PACKAGE: ${{ steps.package.outputs.path }}
+        run: |
+          dotnet nuget push "$PACKAGE" \
+            --api-key "$NUGET_API_KEY" \
+            --source "$NUGET_SOURCE" \
+            --skip-duplicate
+
+      - name: Commit version and tag
+        if: steps.release-state.outputs.tag_exists != 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          BUMPED: ${{ steps.bump.outputs.bumped }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ "$BUMPED" == "true" ]]; then
+            git add "$CSPROJ"
+            git commit -m "chore: bump version to $VERSION"
+          fi
+          git tag "$TAG"
+          git push --atomic origin HEAD:refs/heads/master "refs/tags/$TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists; no update needed."
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "Solrevdev.Logging.AspNetCore v$VERSION" \
+              --generate-notes
+          fi

@@ -75,18 +75,30 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
    a live token in the log store. Do not rewrite `RefererHeader.Sanitise` without keeping that
    test green and keeping its comment.
 
-7. **`::1` is not an IPv4-mapped address.** `IsIPv4MappedToIPv6` is `false` for it on .NET 10.
-   The `IsLoopback` test is what catches it, and the test asserts the runtime fact as well as
-   the behaviour so a future runtime change fails loudly.
+7. **`::1` is not an IPv4-mapped address.** `IsIPv4MappedToIPv6` is `false` for it on .NET 10,
+   measured. The `IsLoopback` test is what catches it, and the test asserts the runtime fact as
+   well as the behaviour so a future runtime change fails loudly.
 
-8. **Every public member needs XML docs.** `GenerateDocumentationFile` plus
-   `TreatWarningsAsErrors` means the build fails without them. Deliberate: this package exists
-   to carry reasons between applications, and a member without its reason is the drift it was
-   written to stop.
+8. **`MapToIPv4` fails silently, which is why the mapped guard exists.** On a genuine IPv6
+   address it does NOT throw; it returns the last four bytes as a plausible, routable,
+   completely wrong IPv4 address. Measured on .NET 10:
+   `2001:db8:85a3::8a2e:370:7334` becomes `3.112.115.52`, and `::1` and `fe80::1`
+   both become `0.0.0.1`. Never write that it throws. Without the guard every IPv6 caller would
+   log as a fabricated address and nothing would raise.
 
-9. **Comments carry the measurement, not the conclusion.** The ones ported from the three
-   applications record what was observed on a running site. Do not compress them into a
-   restatement of the code.
+9. **The mapped check runs BEFORE the loopback test and that order is behaviour.**
+   `IPAddress.IsLoopback("::ffff:127.0.0.2")` is `false` raw and `true` after mapping, so
+   swapping the lines changes the output for a mapped loopback caller. That one input is the
+   only test that discriminates the ordering; keep it.
+
+10. **Every public member needs XML docs.** `GenerateDocumentationFile` plus
+    `TreatWarningsAsErrors` means the build fails without them. Deliberate: this package exists
+    to carry reasons between applications, and a member without its reason is the drift it was
+    written to stop.
+
+11. **Comments carry the measurement, not the conclusion.** The ones ported from the three
+    applications record what was observed on a running site. Do not compress them into a
+    restatement of the code.
 
 ## Commits
 

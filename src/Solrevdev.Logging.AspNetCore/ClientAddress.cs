@@ -25,8 +25,21 @@ namespace Solrevdev.Logging.AspNetCore;
 /// string, which is safe here only because nothing counts, buckets or stores the result.
 /// </para>
 /// <para>
-/// A genuine public IPv6 address comes back untouched. It has no dotted form to convert to,
-/// and <see cref="IPAddress.MapToIPv4"/> on one throws rather than returning something wrong.
+/// <strong>The mapped check runs BEFORE the loopback test, and that order is behaviour rather
+/// than layout.</strong> <c>IPAddress.IsLoopback("::ffff:127.0.0.2")</c> is <c>false</c> on the
+/// raw value and <c>true</c> once the mapping is dropped, so swapping the two lines as a tidy
+/// changes what a mapped loopback caller is logged under. That single input is pinned by a
+/// test; every other input passes under either order.
+/// </para>
+/// <para>
+/// <strong>The <see cref="IPAddress.IsIPv4MappedToIPv6"/> guard exists because
+/// <see cref="IPAddress.MapToIPv4"/> fails SILENTLY.</strong> Called on a genuine IPv6 address
+/// it does not throw and it does not signal anything; it returns the last four bytes as a
+/// plausible, routable, completely wrong IPv4 address. Measured on .NET 10:
+/// <c>2001:db8:85a3::8a2e:370:7334</c> comes back as <c>3.112.115.52</c>, and both
+/// <c>::1</c> and <c>fe80::1</c> come back as <c>0.0.0.1</c>. Without the guard every genuine
+/// IPv6 caller would be logged under a fabricated address and nothing would ever raise, so the
+/// first sign of it would be an investigation run against an address that never existed.
 /// </para>
 /// <para>
 /// <strong>This is for log properties and nothing else.</strong> Never key a rate limit, a
@@ -34,7 +47,17 @@ namespace Solrevdev.Logging.AspNetCore;
 /// value. Those need an address that is stable and unique per caller; this one is reshaped to
 /// be readable, and reshaping partitions to make a log line prettier is not a trade worth
 /// making. An office typically leaves through one NAT address, so any per-address
-/// partitioning is load bearing and is changed on purpose or not at all.
+/// partitioning is load bearing and is changed on purpose or not at all. The authorisation
+/// case is not hypothetical: one of the source applications gates a credential hint on the
+/// caller's address, which is exactly the kind of decision a collapsed loopback range would
+/// quietly widen.
+/// </para>
+/// <para>
+/// For every address that arrives in native, non-mapped, non-loopback form the reshaped and
+/// the raw string are identical, which is what lets the mistake survive testing. They differ
+/// only for loopback and for a mapped address, and a mapped address is routable: an IPv4
+/// caller arriving as <c>::ffff:203.0.113.42</c> is logged here as <c>203.0.113.42</c> and
+/// by anything calling <c>ToString()</c> as the mapped spelling.
 /// </para>
 /// </remarks>
 public static class ClientAddress
@@ -48,7 +71,23 @@ public static class ClientAddress
     /// </param>
     /// <returns>
     /// The dotted IPv4 form for anything that has one, the address unchanged otherwise, and
-    /// null when there was no address.
+    /// <c>null</c> when there was no address. Three parts of that are surprising enough to be
+    /// worth stating rather than leaving to be discovered:
+    /// <list type="bullet">
+    /// <item><description>
+    /// ALL of 127.0.0.0/8 collapses to <c>127.0.0.1</c>, not just <c>::1</c>. Both
+    /// <c>127.0.0.2</c> and <c>::ffff:127.0.0.2</c> come back as <c>127.0.0.1</c>, so two
+    /// distinct callers are indistinguishable in the log.
+    /// </description></item>
+    /// <item><description>
+    /// A link-local address keeps its zone suffix and is rendered verbatim, so
+    /// <c>fe80::1%1</c> comes back as <c>fe80::1%1</c>, scope id and all.
+    /// </description></item>
+    /// <item><description>
+    /// A genuine public IPv6 address is returned unchanged, because it has no dotted form to
+    /// be converted to.
+    /// </description></item>
+    /// </list>
     /// </returns>
     public static string? Describe(IPAddress? address)
     {
@@ -57,6 +96,8 @@ public static class ClientAddress
             return null;
         }
 
+        // This order is load bearing, not layout. IsLoopback is false for ::ffff:127.0.0.2 and
+        // true once the mapping is dropped, so the mapped check has to run first.
         if (address.IsIPv4MappedToIPv6)
         {
             address = address.MapToIPv4();

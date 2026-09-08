@@ -13,8 +13,10 @@ the three rather than the smallest common part.
 ### Added
 
 - `ClientAddress.Describe` — renders a connection address for a log property. Drops the
-  IPv4-mapped prefix, collapses every loopback address to `127.0.0.1`, and returns a public
-  IPv6 address untouched.
+  IPv4-mapped prefix, collapses all of 127.0.0.0/8 to `127.0.0.1`, keeps a link-local address's
+  zone suffix, and returns a public IPv6 address untouched rather than putting it through
+  `MapToIPv4`, which silently truncates it to a wrong but plausible IPv4 address. The mapped
+  check runs before the loopback test, and that order is pinned by a test.
 - `ForwardedForHeader.Claimed` — reassembles the `X-Forwarded-For` the caller actually sent,
   recovering the entry `UseForwardedHeaders` consumed from the connection it was put on.
 - `RefererHeader.Sanitise` — reduces a referer to scheme, host and path, so a password-reset

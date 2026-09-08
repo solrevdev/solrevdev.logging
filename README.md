@@ -84,6 +84,29 @@ while the same machine over IPv4 reads `127.0.0.1`. The explicit `IPAddress.IsLo
 is what catches it, and it covers all of 127.0.0.0/8, so `127.0.0.2` renders as `127.0.0.1`
 too.
 
+The mapped check is also what stops a much worse outcome, and it is worth stating what it
+actually prevents. **`MapToIPv4` does not throw on a genuine IPv6 address. It fails silently.**
+It returns the last four bytes as a plausible, routable, completely wrong IPv4 address.
+Measured on .NET 10 in this repository's test suite:
+
+| Input | `IsIPv4MappedToIPv6` | `MapToIPv4()` |
+| --- | --- | --- |
+| `2001:db8:85a3::8a2e:370:7334` | `false` | `3.112.115.52` |
+| `::1` | `false` | `0.0.0.1` |
+| `fe80::1` | `false` | `0.0.0.1` |
+| `::ffff:127.0.0.2` | `true` | `127.0.0.2` |
+
+Without the guard, every genuine IPv6 caller would be logged under a fabricated address and
+nothing would ever raise. The first sign of it would be an investigation run against an
+address that never existed. That is the argument for the guard, and the fact is pinned by a
+test rather than remembered.
+
+The two checks also run in a fixed order, and the order is behaviour rather than layout.
+`IPAddress.IsLoopback("::ffff:127.0.0.2")` is `false` on the raw value and `true` once the
+mapping is dropped, so map-then-check gives `127.0.0.1` and check-then-map gives
+`::ffff:127.0.0.2`. That single input is the only one in the suite that discriminates the two
+orderings; every other case passes under either.
+
 **`UseForwardedHeaders` consumes the header it accepts.** Send one `X-Forwarded-For` entry and
 the middleware puts it on the connection and deletes the now-empty header, so reading the
 header afterwards produces nothing at all. One entry is exactly what a single load balancer

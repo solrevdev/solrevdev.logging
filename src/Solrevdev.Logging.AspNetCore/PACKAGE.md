@@ -25,7 +25,9 @@ Wire it up. The order is not a style preference; each step below is load bearing
 
 - `ClientIp` rendered so a person can read it. A dual-stack socket delivers an IPv4 caller
   as `::ffff:203.0.113.42` and a local one as `::1`; both become the dotted form, so one
-  filter finds one caller. A public IPv6 address passes through untouched.
+  filter finds one caller. All of 127.0.0.0/8 collapses to `127.0.0.1`, a link-local address
+  keeps its zone suffix, and a public IPv6 address passes through untouched rather than being
+  run through `MapToIPv4`, which would silently return a wrong but plausible IPv4 address.
 - `ForwardedFor` reassembled from what the caller actually claimed. `UseForwardedHeaders`
   consumes the entries it accepts, so reading the header afterwards yields nothing or a
   leftover. This puts the claim back beside the settled address, which is what makes a

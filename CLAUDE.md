@@ -5,9 +5,8 @@ Context for Claude Code working on `solrevdev.logging`.
 ## What this is
 
 A NuGet library, `solrevdev.Logging.AspNetCore`, holding the Serilog request-logging
-infrastructure that three sibling ASP.NET Core applications had each hand-copied and then
-allowed to diverge: `one internal application`, `a second internal application` and the a third internal application
-application. All three are `net10.0` and all three write into one shared Seq.
+infrastructure that three internal ASP.NET Core applications had each hand-copied and then
+allowed to diverge. All three are `net10.0` and all three write into one shared Seq.
 
 The package is the UNION of the three copies, not the smallest common part. Everything in it
 was measured in one of those applications first.

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [1.0.0] - 2026-09-08
 
-First release. Extracted from three sibling ASP.NET Core applications that had each
+First release. Extracted from three internal ASP.NET Core applications that had each
 hand-copied and then diverged from the same request-logging code, and merged as the union of
 the three rather than the smallest common part.
 

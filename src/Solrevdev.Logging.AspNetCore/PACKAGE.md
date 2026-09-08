@@ -1,7 +1,7 @@
 # Solrevdev.Logging.AspNetCore
 
 Shared Serilog request-logging infrastructure for ASP.NET Core, extracted from three
-sibling applications that had each hand-copied and then diverged from the same code.
+internal applications that had each hand-copied and then diverged from the same code.
 
 Install:
 

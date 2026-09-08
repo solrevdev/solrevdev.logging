@@ -6,7 +6,7 @@ Shared Serilog request-logging infrastructure for ASP.NET Core.
 
 ## Why this exists
 
-Three sibling ASP.NET Core applications each carried a hand-copied version of the same
+Three internal ASP.NET Core applications each carried a hand-copied version of the same
 request-logging code, and the three copies had diverged. They wrote into one shared Seq and
 were told apart by an `Application` property, so a divergence there is not cosmetic: a
 property that means the same thing under two names is a filter that silently returns half the
@@ -231,11 +231,11 @@ moved under it, and a re-run against an existing tag is a safe retry.
 
 | Piece | Source |
 | --- | --- |
-| `ClientAddress.Describe` | The second application and the booking application, identical |
-| Forwarded-for reconstruction | The CRM and The second application |
-| Referer sanitising | The CRM and The second application |
+| `ClientAddress.Describe` | Two of the three, byte-identical in both |
+| Forwarded-for reconstruction | Two of the three |
+| Referer sanitising | The same two |
 | `RequestLogLevel` | All three, merged |
-| The two-middleware split | The CRM and The second application, with the booking application's trace id |
+| The two-middleware split | Two of the three, with the third's trace id |
 | `LoggingContract` | New, replacing three sets of hand-typed constants |
 
 ## Contributing

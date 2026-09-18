@@ -1,7 +1,7 @@
 # Maintaining solrevdev.logging
 
 Release process and repository decisions. Consumer documentation is in
-[README.md](README.md). Rules for changing the code are in [CLAUDE.md](CLAUDE.md).
+[README.md](README.md). Rules for changing the code are in [AGENTS.md](AGENTS.md).
 
 ## Publishing
 

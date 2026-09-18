@@ -290,7 +290,7 @@ actual=$(grep -rc --include='*.cs' 'ClientAddress\.Describe(' src \
 
 if [ "$actual" != "$expected" ]; then
   echo "ClientAddress.Describe call sites: $actual, expected $expected" >&2
-  echo "A new call site needs a reason. See rule 2 in CLAUDE.md." >&2
+  echo "A new call site needs a reason. See rule 2 in AGENTS.md." >&2
   exit 1
 fi
 ```
@@ -436,7 +436,7 @@ a public member without XML docs fails the build.
 
 Release process, publishing setup, test package choices and where the code came from are in
 [MAINTAINING.md](MAINTAINING.md). Rules for changing this repository are in
-[CLAUDE.md](CLAUDE.md), which [AGENTS.md](AGENTS.md) points at for other agents.
+[AGENTS.md](AGENTS.md).
 
 ## Licence
 

@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-20
+
+Packaging and documentation only. No code, no public name and no behaviour changed.
+
+### Added
+
+- A package icon. `docs/assets/branding/logging-icon.svg` is the source and
+  `logging-icon-128.png`, rendered from it with `rsvg-convert`, is what `PackageIcon` ships, so
+  nuget.org shows a mark rather than the default placeholder. The two move together.
+- A README header, contents list and quick start, matching the sibling `solrevdev.bbx`
+  repository, so the pipeline order a consumer has to get right is visible without scrolling
+  the whole file.
+
 ## [1.1.0] - 2026-09-08
 
 Corrections from an independent review of 1.0.0. No public name was removed or renamed.

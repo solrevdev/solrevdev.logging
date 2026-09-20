@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="solrevdev.Logging.AspNetCore">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5B2FD6"/>
+      <stop offset="55%" style="stop-color:#3B1E9E"/>
+      <stop offset="100%" style="stop-color:#151033"/>
+    </linearGradient>
+
+    <linearGradient id="paneGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.16)"/>
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0.06)"/>
+    </linearGradient>
+
+    <filter id="rowGlow" x="-30%" y="-60%" width="160%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="url(#bgGrad)"/>
+
+  <!-- Decorative light, matching the sibling solrevdev.bbx icon -->
+  <circle cx="96" cy="88" r="150" fill="rgba(255,255,255,0.05)"/>
+  <circle cx="424" cy="432" r="180" fill="rgba(255,255,255,0.04)"/>
+
+  <!-- Log pane -->
+  <rect x="86" y="130" width="340" height="252" rx="30" fill="url(#paneGrad)" stroke="rgba(255,255,255,0.22)" stroke-width="3"/>
+
+  <!-- Request timeline. Drawn as segments between the pips so a translucent pip
+       is not cut in half by the line underneath it. -->
+  <path d="M136 202 L136 237" stroke="rgba(255,255,255,0.22)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M136 275 L136 310" stroke="rgba(255,255,255,0.22)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Verbose row: quiet, demoted -->
+  <circle cx="136" cy="186" r="13" fill="#4FD1C5" opacity="0.45"/>
+  <rect x="172" y="175" width="198" height="22" rx="11" fill="#FFFFFF" opacity="0.28"/>
+
+  <!-- Information row: the request summary -->
+  <g filter="url(#rowGlow)">
+    <circle cx="136" cy="256" r="16" fill="#4FD1C5"/>
+    <rect x="172" y="242" width="218" height="28" rx="14" fill="#4FD1C5" opacity="0.92"/>
+  </g>
+
+  <!-- Error row -->
+  <circle cx="136" cy="326" r="13" fill="#FF8A6B"/>
+  <rect x="172" y="315" width="152" height="22" rx="11" fill="#FFFFFF" opacity="0.28"/>
+</svg>

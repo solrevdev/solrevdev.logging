@@ -1,13 +1,62 @@
-# solrevdev.logging
+<div align="center">
+  <img src="docs/assets/branding/logging-icon.svg" alt="solrevdev.Logging.AspNetCore" width="128" height="128">
+  <h1>solrevdev.logging</h1>
+  <p><strong>Shared Serilog request logging for ASP.NET Core.</strong> One set of property names, one request summary and one set of rules about what is logged, so several applications writing into one Seq mean the same thing by the same query.</p>
+  <p>
+    <a href="https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/"><img src="https://img.shields.io/nuget/v/solrevdev.Logging.AspNetCore.svg?logo=nuget" alt="NuGet"></a>
+    <a href="https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/"><img src="https://img.shields.io/nuget/dt/solrevdev.Logging.AspNetCore.svg" alt="NuGet downloads"></a>
+    <a href="https://github.com/solrevdev/solrevdev.logging/actions/workflows/ci.yml"><img src="https://github.com/solrevdev/solrevdev.logging/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
+  </p>
+</div>
 
-Shared Serilog request logging for ASP.NET Core.
+---
 
-[![NuGet](https://img.shields.io/nuget/v/solrevdev.Logging.AspNetCore.svg)](https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/)
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Set up Serilog](#set-up-serilog)
+- [Enable forwarded headers](#enable-forwarded-headers)
+- [Wire up the middleware](#wire-up-the-middleware)
+- [What gets logged](#what-gets-logged)
+- [Client addresses behind a load balancer](#client-addresses-behind-a-load-balancer)
+- [The traps this package holds](#the-traps-this-package-holds)
+- [What this package must never grow](#what-this-package-must-never-grow)
+- [Options](#options)
+- [Testing your application against the contract](#testing-your-application-against-the-contract)
+- [Build and test](#build-and-test)
+- [Maintainers](#maintainers)
+- [Licence](#licence)
+
+## Why this exists
 
 Several applications write into one Seq server and are told apart by an `Application`
 property. This package gives them the same property names, the same request summary and the
 same rules about what is logged and what is left out, so one query means the same thing
 across all of them.
+
+- **The property names are fixed, on purpose.** A property that means the same thing under two
+  names is a filter that returns half the traffic and looks like a quiet day. `LoggingContract`
+  owns the names and your application can test against them.
+- **An address a person can read.** A dual-stack socket delivers an IPv4 caller as
+  `::ffff:203.0.113.42` and a local one as `::1`. Both come out dotted, without running a
+  genuine IPv6 address through `MapToIPv4`, which returns a wrong but plausible answer instead
+  of throwing.
+- **A referer with its query string gone.** Password-reset and confirmation tokens ride in
+  query strings and browsers send the previous page as the next request's Referer. That is a
+  security control here, and it is unit-tested as one.
+- **Context on both sides of the rate limiter.** A refused authentication POST short-circuits
+  below the limiter, and the two-middleware split is what keeps its 429 from logging with no
+  address and no trace id.
+- **Quiet traffic demoted, not dropped.** Successful static files, `/healthcheck` and
+  `/version` log at Verbose. The same paths failing still log at their real level.
+- **Properties are absent rather than blank.** "Missing" and "empty" are not the same row in
+  the log store, so a query can ask about absence.
+- **Wiring mistakes fail at startup.** Forget `AddSolrevdevRequestLogging` and the `Use` calls
+  throw, instead of the application running on package defaults it never chose.
 
 ## Install
 
@@ -17,6 +66,43 @@ dotnet add package solrevdev.Logging.AspNetCore
 
 Targets `net10.0`. Depends on `Serilog.AspNetCore` 10.0.0 and the ASP.NET Core shared
 framework.
+
+## Quick start
+
+```csharp
+using Serilog;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Your logger. Enrich.FromLogContext() is required by this package.
+builder.Services.AddSerilog((services, configuration) => configuration
+    .ReadFrom.Configuration(builder.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "orders")
+    .WriteTo.Console());
+
+// This package. Required: each Use call below throws at startup without it.
+builder.Services.AddSolrevdevRequestLogging();
+
+var app = builder.Build();
+
+// The order is part of the API. Every wrong position fails quietly.
+app.UseForwardedHeaders();          // yours to configure; see below
+app.UseSolrevdevClientLogContext(); // ClientIp and TraceId
+app.UseSolrevdevRequestLogging();   // Serilog's request summary
+app.UseStaticFiles();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseSolrevdevUserLogContext();   // UserId and UserEmail
+app.UseAuthorization();
+```
+
+Two things that snippet does not do for you, both of which change what you get:
+`AddSolrevdevRequestLogging` configures neither Serilog nor forwarded headers. The next two
+sections cover each, and the rest of the file explains what is logged and the measured
+traps behind it.
 
 ## Set up Serilog
 

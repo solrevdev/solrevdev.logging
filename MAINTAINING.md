@@ -79,6 +79,23 @@ The early `origin/master` check in step 2 is a cheap pre-flight rather than a gu
 fails a doomed run in seconds instead of after a build, and `master` can still move during the
 build that follows. The atomic push is what protects the release.
 
+## Branding assets
+
+`docs/assets/branding/logging-icon.svg` is the source mark. The two PNGs beside it are
+rendered from it, and the 128px one is what the csproj packs as `icon.png`:
+
+```bash
+rsvg-convert --width=128 --height=128 docs/assets/branding/logging-icon.svg \
+  -o docs/assets/branding/logging-icon-128.png
+rsvg-convert --width=512 --height=512 docs/assets/branding/logging-icon.svg \
+  -o docs/assets/branding/logging-icon-512.png
+```
+
+nuget.org renders an embedded icon file and ignores the deprecated `PackageIconUrl`, and it
+does not render SVG, so the PNG has to be in the package. Re-render both after editing the SVG
+and commit all three together, or the package ships a mark the repository no longer shows. The
+README points at the SVG, because GitHub does render it.
+
 ## Why these test packages
 
 `xunit.v3` 3.2.2 with `xunit.runner.visualstudio` 3.1.5 and `Microsoft.NET.Test.Sdk` 18.9.0.

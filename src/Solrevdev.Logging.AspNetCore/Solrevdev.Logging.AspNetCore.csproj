@@ -15,9 +15,10 @@
 
     <PackageId>solrevdev.Logging.AspNetCore</PackageId>
 
-    <!-- First public release. CI bumps this; a plain push to master bumps the
-         patch, larger bumps go through workflow_dispatch. -->
-    <Version>1.1.0</Version>
+    <!-- The release number. CI publishes this version as it stands while no tag
+         names it, and bumps the patch once v<this> exists; larger bumps go through
+         workflow_dispatch. Raising it by hand here is how a minor or major is chosen. -->
+    <Version>1.1.1</Version>
 
     <!-- NuGet metadata -->
     <Authors>solrevdev</Authors>
@@ -32,6 +33,7 @@
     <PackageProjectUrl>https://github.com/solrevdev/solrevdev.logging</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageReleaseNotes>See https://github.com/solrevdev/solrevdev.logging/blob/master/CHANGELOG.md</PackageReleaseNotes>
 
     <!-- Ship symbols so stack traces from a published build are readable. -->
@@ -68,5 +70,10 @@
     <!-- NuGet.org strips raw HTML, so the package gets its own readme rather
          than the GitHub one. -->
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+
+    <!-- nuget.org renders the embedded icon, not a URL, and wants a small raster.
+         The SVG in docs/assets/branding is the source; the 128px PNG is generated
+         from it with rsvg-convert and both move together. -->
+    <None Include="../../docs/assets/branding/logging-icon-128.png" Pack="true" PackagePath="icon.png" Visible="false" />
   </ItemGroup>
 </Project>

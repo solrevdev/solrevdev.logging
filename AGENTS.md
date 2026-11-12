@@ -9,7 +9,7 @@ for Claude Code.
 
 A NuGet library, `solrevdev.Logging.AspNetCore`, holding the Serilog request-logging
 infrastructure that three internal ASP.NET Core applications had each hand-copied and then
-allowed to diverge. All three are `net10.0` and all three write into one shared Seq.
+allowed to diverge. The package targets `net10.0` and `net11.0`. All three applications are `net10.0` and all three write into one shared Seq.
 
 The package is the UNION of the three copies, not the smallest common part. Everything in it
 was measured in one of those applications first.
@@ -24,8 +24,13 @@ dotnet pack src/Solrevdev.Logging.AspNetCore --configuration Release
 
 Tests must pass before you commit.
 
-The SDK is pinned by `global.json` to 10.0.100 with `rollForward: latestFeature`, matching the
-three consumers. Tests are xunit.v3 3.2.2 with xunit.runner.visualstudio 3.1.5 and
+.NET 10 is the LTS baseline. `global.json` asks for SDK 10.0.100 with `rollForward: latestMajor`
+and no prereleases, so the newest installed SDK builds. The target list depends on that SDK: 11
+or later builds `net10.0` and `net11.0`, SDK 10 alone builds `net10.0` only. The published
+package must carry both, so CI installs SDKs 10.0.x and 11.0.x explicitly and checks the package
+for both `lib/` folders. Do not switch the workflows back to `global-json-file`: setup-dotnet
+installs nothing from a `latestMajor` global.json. The three consumers stay on `net10.0`, which
+the package still serves. Tests are xunit.v3 3.2.2 with xunit.runner.visualstudio 3.1.5 and
 Microsoft.NET.Test.Sdk 18.9.0, which is what both sibling applications run.
 
 ## Layout

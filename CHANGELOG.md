@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-12
+
+Build and packaging only. No code, no public name and no behaviour changed.
+
+### Changed
+
+- The package now targets `net11.0` beside `net10.0`. The three consuming applications stay on
+  `net10.0`, which the package still serves.
+- .NET 10 is the LTS baseline for building. `global.json` asks for SDK `10.0.100` with
+  `rollForward: latestMajor` and `allowPrerelease: false`, so the newest installed release SDK
+  builds. SDK 11 or later builds both targets; SDK 10 alone builds `net10.0` only. CI installs
+  SDKs 10.0.x and 11.0.x and fails if the package is missing either target.
+
 ## [1.1.1] - 2026-09-20
 
 Packaging and documentation only. No code, no public name and no behaviour changed.

@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- SDK 10 cannot build net11.0, so net11.0 is added only when SDK 11 or later builds; CI installs both SDKs so the package ships both. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">net10.0;net11.0</TargetFrameworks>
     <RootNamespace>Solrevdev.Logging.AspNetCore</RootNamespace>
     <AssemblyName>Solrevdev.Logging.AspNetCore</AssemblyName>
     <LangVersion>latest</LangVersion>
@@ -18,7 +20,7 @@
     <!-- The release number. CI publishes this version as it stands while no tag
          names it, and bumps the patch once v<this> exists; larger bumps go through
          workflow_dispatch. Raising it by hand here is how a minor or major is chosen. -->
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
 
     <!-- NuGet metadata -->
     <Authors>solrevdev</Authors>
@@ -26,7 +28,7 @@
     <Product>Solrevdev.Logging.AspNetCore</Product>
     <Copyright>Copyright (c) solrevdev</Copyright>
     <Title>Solrevdev.Logging.AspNetCore — Serilog request logging for ASP.NET Core</Title>
-    <PackageDescription>Shared Serilog request-logging infrastructure for ASP.NET Core: a readable client address, the X-Forwarded-For the caller actually claimed, a referer with its query string stripped, static-file and probe summaries demoted to Verbose, log-context middleware split either side of the rate limiter, and a property contract each application can test against.</PackageDescription>
+    <PackageDescription>Shared Serilog request-logging infrastructure for ASP.NET Core on .NET 10 and .NET 11: a readable client address, the X-Forwarded-For the caller actually claimed, a referer with its query string stripped, static-file and probe summaries demoted to Verbose, log-context middleware split either side of the rate limiter, and a property contract each application can test against.</PackageDescription>
     <PackageTags>serilog;logging;aspnetcore;seq;request-logging;diagnostics;middleware;observability</PackageTags>
     <RepositoryUrl>https://github.com/solrevdev/solrevdev.logging</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

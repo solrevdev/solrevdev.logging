@@ -6,7 +6,7 @@
     <a href="https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/"><img src="https://img.shields.io/nuget/v/solrevdev.Logging.AspNetCore.svg?logo=nuget" alt="NuGet"></a>
     <a href="https://www.nuget.org/packages/solrevdev.Logging.AspNetCore/"><img src="https://img.shields.io/nuget/dt/solrevdev.Logging.AspNetCore.svg" alt="NuGet downloads"></a>
     <a href="https://github.com/solrevdev/solrevdev.logging/actions/workflows/ci.yml"><img src="https://github.com/solrevdev/solrevdev.logging/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
+    <img src="https://img.shields.io/badge/.NET-10%20%7C%2011-512BD4?logo=dotnet&logoColor=white" alt=".NET 10 | 11">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
   </p>
 </div>
@@ -64,7 +64,7 @@ across all of them.
 dotnet add package solrevdev.Logging.AspNetCore
 ```
 
-Targets `net10.0`. Depends on `Serilog.AspNetCore` 10.0.0 and the ASP.NET Core shared
+Targets `net10.0` and `net11.0`. Depends on `Serilog.AspNetCore` 10.0.0 and the ASP.NET Core shared
 framework.
 
 ## Quick start
@@ -514,8 +514,9 @@ dotnet test --configuration Release
 dotnet pack src/Solrevdev.Logging.AspNetCore --configuration Release
 ```
 
-The SDK is pinned by `global.json` to 10.0.100 with `rollForward: latestFeature`, matching the
-consuming applications. `TreatWarningsAsErrors` and `GenerateDocumentationFile` are both on, so
+`global.json` asks for SDK 10.0.100 with `rollForward: latestMajor` and no prereleases, so the
+newest installed SDK builds. SDK 11 or later builds `net10.0` and `net11.0`; SDK 10 alone builds
+`net10.0` only. Testing `net10.0` under SDK 11 needs the .NET 10 runtime too. `TreatWarningsAsErrors` and `GenerateDocumentationFile` are both on, so
 a public member without XML docs fails the build.
 
 ## Maintainers

@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- SDK 10 cannot build net11.0, so net11.0 is added only when SDK 11 or later builds; CI installs both SDKs so the package ships both. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">net10.0;net11.0</TargetFrameworks>
     <RootNamespace>Solrevdev.Logging.AspNetCore.Tests</RootNamespace>
     <AssemblyName>Solrevdev.Logging.AspNetCore.Tests</AssemblyName>
     <LangVersion>latest</LangVersion>

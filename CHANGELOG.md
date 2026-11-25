@@ -4,6 +4,108 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-11-25
+
+Additions only. No existing API changed and no existing output changed: no public name was
+removed or renamed, no existing `LoggingContract` constant or set changed its value or
+membership, and an application that upgrades from 1.2.0 without touching its configuration
+writes the same properties with the same values. Every new property and both filters are off
+until switched on.
+
+**New public names were added, and that can break a build.** An application with a type of
+its own that has one of the names below, in a file that imports
+`Solrevdev.Logging.AspNetCore`, gets CS0104 (ambiguous reference) from the version bump alone.
+That is most likely for a local copy of a type this package was ported from. Delete the copy
+or alias it. Nothing changes at run time. The nineteen new public type names:
+
+`AntiforgeryRefusalEndpointFilter`, `AntiforgeryRefusalLog`, `AntiforgeryRefusalLogFilter`,
+`BootstrapHost`, `BootstrapLogIdentity`, `EventNameViolation`, `EventNameViolationKind`,
+`EventNames`, `FormRefusalLogFilter`, `HeaderValue`, `ILoggedRefusal`, `LoggedRefusal`,
+`RefusalEvents`, `RefusalLogOptions`, `RefusalLoggingExtensions`, `RequestNavigation`,
+`RequestQuery`, `SelfLogOutput`, `TransportExceptionLog`.
+
+### Added
+
+- `RequestLogOptions.SummaryEnrichers`, a list of `Action<IDiagnosticContext, HttpContext>` for
+  an application's own request summary fields. They run after the package's own, in the order
+  added, on every path that reaches `RequestSummaryEnricher.Enrich`. An enricher that throws is
+  caught and written to Serilog's `SelfLog`, and the rest still run. Measured against
+  Serilog.AspNetCore 10.0.0, an exception from `EnrichDiagnosticContext` otherwise fails the
+  request after its page has run and no summary line is written.
+- `Navigation`, how the browser says the request was started, from the `Sec-Fetch-*` headers:
+  `fetch`, `frame`, `direct`, `cross-site`, `user` or `scripted`, and absent when none of the
+  headers was sent. Opt in with `RequestLogOptions.IncludeNavigation`. `RequestNavigation`
+  holds the values as constants and a public `Describe`.
+- `RequestQuery`, the query string cut down to an allowlist. Opt in with
+  `RequestLogOptions.IncludeRequestQuery`. `RequestQueryKeys` is the allowlist and starts
+  empty, so every value reads `(set)` until a key is listed.
+  `MaximumRequestQueryPairs` (12) and `MaximumRequestQueryValueLength` (50) are the caps, and
+  both are refused at startup when less than 1. `RequestQuery.Describe` is public.
+- `SpanId`, the request span's id from `Activity.Current`, beside `TraceId` on the request
+  summary and on the client log context. Opt in with `RequestLogOptions.IncludeSpanId`.
+- `LoggingContract.Navigation`, `RequestQuery`, `SpanId` and `Event`, with two new sets:
+  `OptInProperties` (the first three) and `ExtendedProperties` (all four). None is in any
+  earlier set.
+- `SelfLogOutput`, which writes one line the first time the Seq sink cannot connect, nothing
+  for later connection failures, and every other SelfLog message whole. The closing sentence
+  is a constructor argument, and so is an optional prefix for the first line of each message.
+  Known gap: once per process.
+- `BootstrapLogIdentity.Resolve`, which reads `Application` and `Environment` from launch
+  arguments and environment variables only, with the default application name passed in.
+  `BootstrapHost` says which host the application builds, because the hosts read
+  `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` and `--environment` in different orders. The
+  default, `WebApplication`, is the order `WebApplication.CreateBuilder` uses, measured:
+  argument, `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT`.
+- `AntiforgeryRefusalLog.Write` and `WriteAsync`, the one writer of `web.antiforgery.refused`,
+  for a minimal-API endpoint or any code outside MVC. The MVC filter calls it too. It writes
+  at most once per request.
+- `AntiforgeryRefusalEndpointFilter`, an endpoint filter for a route or route group that logs
+  an `AntiforgeryValidationException` the endpoint lets out and throws it on.
+- `TransportExceptionLog.Snapshot` and `IsTransportFailure`, which keep the type, the HTTP
+  status and the stack frames of a failed outbound call and drop its response text and URL.
+- `EventNames.IsWellFormed` and `EventNames.Violations`, with `EventNameViolation` and
+  `EventNameViolationKind`: the `area.thing.outcome` convention, and a check of a type's public
+  string constants that returns its findings as data. The package still references no test
+  framework.
+- `HeaderValue` and `HeaderValue.Truncate` are public, so an application can cut a
+  `UserAgent` it logs itself to the configured length. They were internal.
+- `AddSolrevdevRefusalLogging`, which adds two MVC filters as global filters. Opt-in: an
+  application that does not call it logs what it logged before. `RefusalLogOptions` switches
+  either off. MVC is in the ASP.NET Core shared framework, so there is no new dependency.
+  - `AntiforgeryRefusalLogFilter` writes `web.antiforgery.refused`, a Warning, for a form post
+    that failed its anti-forgery check, with `RequestMethod`, `RequestPath`, `RefusalReason`,
+    `HasAntiforgeryCookie` and `UserAgent` cut to `MaximumUserAgentLength`.
+  - `FormRefusalLogFilter` writes `web.form.refused` for a POST whose handler returned the page
+    with invalid model state, with `PageName`, `PageHandler` (`(default)` for the unnamed
+    handler), `InvalidFields` (`(form)` for a page-wide error) and `FormErrors`. Posted values
+    of three or more characters are cut out of the messages, which are capped at 300
+    characters each and 20 in all. It is a Warning when it is the only record, and Information
+    with `FollowsEvent` and, where there was one, `FollowsRequest` when a refusal was already
+    logged in the request.
+- `ILoggedRefusal`, the read-only seam the form filter resolves from the request services to
+  learn of a refusal already logged, and `LoggedRefusal`, a scoped default registered by
+  `AddSolrevdevLoggedRefusal`. With neither registered every form refusal is a Warning.
+- `RefusalEvents.WebAntiforgeryRefused` and `RefusalEvents.WebFormRefused`, the two event names
+  the package writes.
+- `LoggingContract.PageName`, `PageHandler`, `InvalidFields`, `FormErrors`, `FollowsEvent`,
+  `FollowsRequest`, `RefusalReason` and `HasAntiforgeryCookie`, in a new set,
+  `RefusalProperties`. None is in any other set.
+- `LoggingContract.AntiforgeryRefusalProperties` and `FormRefusalProperties`, everything each
+  refusal event can carry, with `AntiforgeryRefusalOptionalProperties` (`UserAgent`) and
+  `FormRefusalOptionalProperties` (`FollowsEvent`, `FollowsRequest`) for what each can lack.
+- A README table from each contract name to its OpenTelemetry semantic-convention name, and a
+  policy in `MAINTAINING.md` for adding a property, never renaming one, and what a consumer
+  does on upgrade.
+
+### Changed
+
+- `UseSolrevdevRequestLogging` reads the registered `RequestLogOptions` from the
+  application's service provider and no longer looks in `HttpContext.RequestServices` on each
+  request. Under a host those are the same options, so the output is the same. One application
+  bypassed the helper on the belief that it used package defaults; that was true only of the
+  two short overloads called with no request services, which a host never does, and it cannot
+  be true of the helper now. The two short overloads behave as before.
+
 ## [1.2.0] - 2026-11-12
 
 Build and packaging only. No code, no public name and no behaviour changed.

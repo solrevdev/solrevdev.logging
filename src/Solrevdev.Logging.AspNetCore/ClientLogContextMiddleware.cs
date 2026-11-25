@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Serilog.Context;
 
 namespace Solrevdev.Logging.AspNetCore;
@@ -66,6 +68,17 @@ public sealed class ClientLogContextMiddleware(RequestDelegate next)
         using var traceScope = traceId is null
             ? null
             : LogContext.PushProperty(LoggingContract.TraceId, traceId);
+
+        // Opt-in, so the options are looked up per request and not taken in the constructor,
+        // whose signature is public. No request services means no options, which means off.
+        var spanId = context.RequestServices?
+            .GetService<IOptions<RequestLogOptions>>()?.Value.IncludeSpanId == true
+            ? Activity.Current?.SpanId.ToString()
+            : null;
+
+        using var spanScope = spanId is null
+            ? null
+            : LogContext.PushProperty(LoggingContract.SpanId, spanId);
         using var clientIpScope = clientIp is null
             ? null
             : LogContext.PushProperty(LoggingContract.ClientIp, clientIp);

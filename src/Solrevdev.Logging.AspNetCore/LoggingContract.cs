@@ -99,6 +99,94 @@ public static class LoggingContract
     public const string UserEmail = "UserEmail";
 
     /// <summary>
+    /// How the browser says the request was started, as one word from
+    /// <see cref="RequestNavigation"/>. Opt-in through
+    /// <see cref="RequestLogOptions.IncludeNavigation"/>, and absent when the caller sent no
+    /// <c>Sec-Fetch-*</c> header.
+    /// </summary>
+    public const string Navigation = "Navigation";
+
+    /// <summary>
+    /// The query string cut down to an allowlist by
+    /// <see cref="Solrevdev.Logging.AspNetCore.RequestQuery"/>. Opt-in through
+    /// <see cref="RequestLogOptions.IncludeRequestQuery"/>, and absent when the request had no
+    /// query or matched no endpoint.
+    /// </summary>
+    public const string RequestQuery = "RequestQuery";
+
+    /// <summary>
+    /// The id of the request's own span, beside <see cref="TraceId"/>. Opt-in through
+    /// <see cref="RequestLogOptions.IncludeSpanId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Serilog stamps a span id on every event as a built-in field, which Seq reads and a text
+    /// or <c>.clef</c> line cannot show by name. This is the request span's id as an ordinary
+    /// property, so a log file line can be matched to a span without Seq. It is the span that
+    /// was current where the package read it, which is the request's, not a child span opened
+    /// further in.
+    /// </remarks>
+    public const string SpanId = "SpanId";
+
+    /// <summary>
+    /// The property an application puts a stable event name in, such as
+    /// <c>auth.signin.succeeded</c>. See <see cref="EventNames"/> for the shape.
+    /// </summary>
+    /// <remarks>
+    /// This package never sets it. The name is here so that three applications writing into
+    /// one log store query one property, and so nothing types it as a literal.
+    /// </remarks>
+    public const string Event = "Event";
+
+    /// <summary>
+    /// The Razor page a form came back to, as its view engine path, such as
+    /// <c>/Auth/Login</c>. On <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string PageName = "PageName";
+
+    /// <summary>
+    /// The page handler that ran, or <see cref="FormRefusalLogFilter.DefaultHandler"/> for
+    /// the unnamed one. On <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string PageHandler = "PageHandler";
+
+    /// <summary>
+    /// The model state keys that held an error, sorted, with
+    /// <see cref="FormRefusalLogFilter.FormField"/> for a page-wide error. On
+    /// <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string InvalidFields = "InvalidFields";
+
+    /// <summary>
+    /// The messages the page showed, with posted values cut out. On
+    /// <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string FormErrors = "FormErrors";
+
+    /// <summary>
+    /// The refusal event already logged in the same request. Absent when the form line is the
+    /// only record. On <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string FollowsEvent = "FollowsEvent";
+
+    /// <summary>
+    /// The request the earlier refusal was for. Absent when there was none. On
+    /// <see cref="RefusalEvents.WebFormRefused"/>.
+    /// </summary>
+    public const string FollowsRequest = "FollowsRequest";
+
+    /// <summary>
+    /// Why the anti-forgery check failed, in the framework's words. On
+    /// <see cref="RefusalEvents.WebAntiforgeryRefused"/>.
+    /// </summary>
+    public const string RefusalReason = "RefusalReason";
+
+    /// <summary>
+    /// Whether the caller sent an anti-forgery cookie. On
+    /// <see cref="RefusalEvents.WebAntiforgeryRefused"/>.
+    /// </summary>
+    public const string HasAntiforgeryCookie = "HasAntiforgeryCookie";
+
+    /// <summary>
     /// The properties this library's enricher OWNS, signed in or not. Ownership, not
     /// presence: see <see cref="OptionalProperties"/>.
     /// </summary>
@@ -217,5 +305,115 @@ public static class LoggingContract
     /// </summary>
     public static readonly IReadOnlySet<string> AllProperties = FrozenSet.ToFrozenSet(
         [.. RequiredProperties, .. AuthenticatedProperties],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// The properties <see cref="RequestSummaryEnricher"/> sets only when an application
+    /// switches each one on: <see cref="Navigation"/>, <see cref="RequestQuery"/> and
+    /// <see cref="SpanId"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A separate set, and not part of <see cref="EnricherProperties"/>,
+    /// <see cref="RequiredProperties"/> or <see cref="AllProperties"/>, because consuming
+    /// applications assert those sets on every request. A name added to one of them would
+    /// fail every consumer's contract test on upgrade, for a property they never asked for.
+    /// </para>
+    /// <para>
+    /// Each is absent until its option is set, and can be absent afterwards for an ordinary
+    /// reason: no <c>Sec-Fetch-*</c> header, no query string or no endpoint, no
+    /// <see cref="System.Diagnostics.Activity"/>. Assert them per scenario, never
+    /// unconditionally.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlySet<string> OptInProperties = FrozenSet.ToFrozenSet(
+        [Navigation, RequestQuery, SpanId],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// <see cref="OptInProperties"/> and <see cref="Event"/>: the names added in 1.3.0 that
+    /// are not specific to the refusal events.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AllProperties"/>, this set and <see cref="RefusalProperties"/> together are
+    /// every property name this package publishes, which is the list to check an
+    /// application's own property names against so that none collides.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> ExtendedProperties = FrozenSet.ToFrozenSet(
+        [.. OptInProperties, Event],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// Every property <see cref="RefusalEvents.WebAntiforgeryRefused"/> can carry, whoever
+    /// writes it: the MVC filter, the endpoint filter or <see cref="AntiforgeryRefusalLog"/>.
+    /// </summary>
+    /// <remarks>
+    /// All but <see cref="AntiforgeryRefusalOptionalProperties"/> are on every such event.
+    /// <see cref="Event"/>, <see cref="RequestMethod"/>, <see cref="RequestPath"/> and
+    /// <see cref="UserAgent"/> are names from older sets, written here by this package and
+    /// not by Serilog's request logging.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> AntiforgeryRefusalProperties = FrozenSet.ToFrozenSet(
+        [Event, RequestMethod, RequestPath, RefusalReason, HasAntiforgeryCookie, UserAgent],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// The part of <see cref="AntiforgeryRefusalProperties"/> an event can lack:
+    /// <see cref="UserAgent"/>, absent when the caller sent none.
+    /// </summary>
+    public static readonly IReadOnlySet<string> AntiforgeryRefusalOptionalProperties = FrozenSet.ToFrozenSet(
+        [UserAgent],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// Every property <see cref="RefusalEvents.WebFormRefused"/> can carry.
+    /// </summary>
+    /// <remarks>
+    /// All but <see cref="FormRefusalOptionalProperties"/> are on every such event.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> FormRefusalProperties = FrozenSet.ToFrozenSet(
+        [Event, PageName, PageHandler, InvalidFields, FormErrors, FollowsEvent, FollowsRequest],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// The part of <see cref="FormRefusalProperties"/> an event can lack.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FollowsEvent"/> is absent when the form line is the only record of the
+    /// refusal, which is also when the event is a Warning. <see cref="FollowsRequest"/> is
+    /// absent then too, and when the earlier refusal had no request. It is never present
+    /// without <see cref="FollowsEvent"/>.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> FormRefusalOptionalProperties = FrozenSet.ToFrozenSet(
+        [FollowsEvent, FollowsRequest],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// The eight names only the two refusal events carry: everything in
+    /// <see cref="AntiforgeryRefusalProperties"/> and <see cref="FormRefusalProperties"/>
+    /// that is in no older set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A set of its own. These are on two events an application opts into, never on the
+    /// request summary, so they are in none of the summary sets and not in
+    /// <see cref="OptInProperties"/>.
+    /// </para>
+    /// <para>
+    /// To assert what one event carries, use the per-event sets. This one answers a
+    /// different question: which names did the refusal events add.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlySet<string> RefusalProperties = FrozenSet.ToFrozenSet(
+        [
+            PageName,
+            PageHandler,
+            InvalidFields,
+            FormErrors,
+            FollowsEvent,
+            FollowsRequest,
+            RefusalReason,
+            HasAntiforgeryCookie
+        ],
         StringComparer.Ordinal);
 }

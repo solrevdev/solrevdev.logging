@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Serilog;
 
 using SerilogRequestLoggingOptions = Serilog.AspNetCore.RequestLoggingOptions;
@@ -28,6 +30,17 @@ public static class SerilogRequestLoggingExtensions
     /// every stylesheet writes an Information event.
     /// </para>
     /// <para>
+    /// An application's own summary fields go in
+    /// <see cref="RequestLogOptions.SummaryEnrichers"/>, which run after the package's. That
+    /// is the seam to use in place of calling <c>UseSerilogRequestLogging</c> directly and
+    /// wiring <see cref="RequestSummaryEnricher"/> and <see cref="RequestLogLevel"/> by hand,
+    /// which skips the startup guard below.
+    /// </para>
+    /// <para>
+    /// The options used are the ones the application registered, read from its own service
+    /// provider. They do not depend on <c>HttpContext.RequestServices</c>.
+    /// </para>
+    /// <para>
     /// The full required order is on <see cref="ApplicationBuilderExtensions"/>:
     /// <c>UseForwardedHeaders</c>, client log context, this, <c>UseStaticFiles</c>,
     /// <c>UseRouting</c>, the rate limiter, <c>UseAuthentication</c>, user log context,
@@ -52,11 +65,19 @@ public static class SerilogRequestLoggingExtensions
 
         RequestLoggingMarkerService.ThrowIfUnregistered(app);
 
+        // Read from the application's own services, once, and not from each request's. The
+        // marker check above means the registration is there. Before 1.3.0 this handed over
+        // the short overloads, which look in HttpContext.RequestServices and fall back to
+        // package defaults without a word when it is null. Under a host it never is, so the
+        // application's options were always the ones used; this takes the question away.
+        var registered = app.ApplicationServices.GetRequiredService<IOptions<RequestLogOptions>>();
+
         return app.UseSerilogRequestLogging(options =>
         {
-            options.EnrichDiagnosticContext = RequestSummaryEnricher.EnrichRequestSummary;
+            options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+                RequestSummaryEnricher.Enrich(diagnosticContext, httpContext, registered.Value);
             options.GetLevel = (httpContext, elapsed, exception) =>
-                RequestLogLevel.For(httpContext, exception);
+                RequestLogLevel.For(httpContext, exception, registered.Value);
 
             configure?.Invoke(options);
         });

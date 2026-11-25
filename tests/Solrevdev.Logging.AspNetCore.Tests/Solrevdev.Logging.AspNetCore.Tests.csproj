@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
     <!-- SDK 10 cannot build net11.0, so net11.0 is added only when SDK 11 or later builds; CI installs both SDKs so the package ships both. -->
     <TargetFrameworks>net10.0</TargetFrameworks>
@@ -13,6 +13,10 @@
     <IsTestProject>true</IsTestProject>
     <!-- xUnit v3 generates the entry point for its self-running test executable. -->
     <OutputType>Exe</OutputType>
+
+    <!-- The Razor SDK compiles the two pages under Pages/ into this assembly, so the refusal
+         filters are tested through real Razor Pages on a TestServer. Nothing else needs it. -->
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,6 +30,8 @@
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <!-- Test only. One 10.0 build serves both targets; the 11.0 package has no net10.0 asset. -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

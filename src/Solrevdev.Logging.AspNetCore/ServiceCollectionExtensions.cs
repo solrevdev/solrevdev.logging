@@ -89,6 +89,12 @@ public static class ServiceCollectionExtensions
             .Validate(
                 options => options.MaximumForwardedForLength > 0,
                 $"{nameof(RequestLogOptions)}.{nameof(RequestLogOptions.MaximumForwardedForLength)} must be at least 1.")
+            .Validate(
+                options => options.MaximumRequestQueryPairs > 0,
+                $"{nameof(RequestLogOptions)}.{nameof(RequestLogOptions.MaximumRequestQueryPairs)} must be at least 1.")
+            .Validate(
+                options => options.MaximumRequestQueryValueLength > 0,
+                $"{nameof(RequestLogOptions)}.{nameof(RequestLogOptions.MaximumRequestQueryValueLength)} must be at least 1.")
             .ValidateOnStart();
     }
 }

@@ -67,6 +67,31 @@ processing itself. `app.UseForwardedHeaders()` alone reads nothing, because the 
 - `LoggingContract`, the property names as constants and as sets, so each application can test
   that its own request summaries still carry them.
 
+Added in 1.3.0. No existing API or output changed. The new public type names can clash with
+a local type of the same name (CS0104); the README lists them under "Upgrading from 1.2.0".
+
+- `RequestLogOptions.SummaryEnrichers`, for an application's own request summary fields. They
+  run after the package's, and one that throws is caught and reported to SelfLog.
+- Three opt-in properties: `Navigation` (how the browser says the request was started, from
+  the `Sec-Fetch-*` headers), `RequestQuery` (the query string cut to an allowlist that starts
+  empty) and `SpanId` (beside `TraceId`). Switch each on with `IncludeNavigation`,
+  `IncludeRequestQuery` and `IncludeSpanId`.
+- `SelfLogOutput`, which cuts a stopped Seq to one line of SelfLog and prints every other sink
+  failure whole.
+- `BootstrapLogIdentity`, which names the bootstrap logger from launch arguments and
+  environment variables without reading a configuration file.
+- `TransportExceptionLog`, which logs a failed outbound HTTP call without its response text or
+  URL.
+- `LoggingContract.Event` and `EventNames`, the `area.thing.outcome` event-name convention and
+  a check an application's own test can run.
+- `HeaderValue.Truncate`, the cut the summary uses for `UserAgent`, now public.
+- Two MVC filters, added by `AddSolrevdevRefusalLogging()`. `web.antiforgery.refused` is a form
+  post that failed its anti-forgery check, with the reason. `web.form.refused` is a form that
+  came back to its page with errors: the page, the handler, the fields and the messages, with
+  posted values cut out. The form line is a Warning when it is the only record and Information
+  when it follows a refusal already logged, which it learns from `ILoggedRefusal`.
+  `AntiforgeryRefusalLog.Write` writes the same anti-forgery event from a minimal-API endpoint.
+
 Properties are omitted rather than set to an empty string. An anonymous request carries no
 user properties, a request with no Referer carries no `Referer`, and a claim holding an empty
 string counts as absent. `LoggingContract.OptionalProperties` lists the names a legitimate
@@ -74,8 +99,8 @@ request can arrive without, so a contract test asserts `RequiredProperties` minu
 
 ## What it deliberately does not do
 
-No rate limiting, no throttling, no `ForwardedHeadersOptions` policy, and nothing that keys off
-an address for any purpose other than a log property. Those are the consuming application's
+No rate limiting, no throttling, no `ForwardedHeadersOptions` policy, no OpenTelemetry setup,
+and nothing that keys off an address for any purpose other than a log property. Those are the consuming application's
 decisions.
 
 The address this package renders is reshaped to be readable, which is exactly wrong for a

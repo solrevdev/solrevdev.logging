@@ -4,13 +4,14 @@ namespace Solrevdev.Logging.AspNetCore;
 /// Caps caller-supplied header values so one request cannot write an unbounded log event.
 /// </summary>
 /// <remarks>
-/// <strong>Internal.</strong> It is documented at this length because the rule it enforces is
-/// shared, not because a consumer can call it: the public way in is
-/// <see cref="RefererHeader.Sanitise"/> or <see cref="ForwardedForHeader.Claimed"/>, and both
-/// take the same cap and inherit the behaviour described below. The tests reach it through
-/// <c>InternalsVisibleTo</c>.
+/// Public since 1.3.0 so an application that writes <see cref="LoggingContract.UserAgent"/> or
+/// another caller-supplied header on an event of its own can cut it the way the request summary
+/// does. Pass the application's configured cap, such as
+/// <see cref="RequestLogOptions.MaximumUserAgentLength"/>, or the same name ends up carrying
+/// two lengths. <see cref="RefererHeader.Sanitise"/> and <see cref="ForwardedForHeader.Claimed"/>
+/// both end here and inherit the behaviour described below.
 /// </remarks>
-internal static class HeaderValue
+public static class HeaderValue
 {
     /// <summary>
     /// Trims and caps a header value.
@@ -32,7 +33,7 @@ internal static class HeaderValue
     /// The trimmed value cut to length, or null when it was empty or whitespace or when the
     /// cap keeps nothing.
     /// </returns>
-    internal static string? Truncate(string? value, int maximumLength)
+    public static string? Truncate(string? value, int maximumLength)
     {
         if (string.IsNullOrWhiteSpace(value) || maximumLength <= 0)
         {

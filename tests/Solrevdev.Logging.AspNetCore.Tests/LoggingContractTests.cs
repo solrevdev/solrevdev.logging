@@ -115,6 +115,87 @@ public class LoggingContractTests
             LoggingContract.RequiredProperties.Except(LoggingContract.OptionalProperties).Order());
     }
 
+    [Fact]
+    public void The_opt_in_set_is_exactly_the_three_names()
+    {
+        Assert.Equal(
+            new[] { "Navigation", "RequestQuery", "SpanId" }.Order(),
+            LoggingContract.OptInProperties.Order());
+    }
+
+    [Fact]
+    public void The_extended_set_is_the_opt_in_names_and_event()
+    {
+        Assert.Equal(
+            new[] { "Event", "Navigation", "RequestQuery", "SpanId" }.Order(),
+            LoggingContract.ExtendedProperties.Order());
+        Assert.Equal("Event", LoggingContract.Event);
+    }
+
+    [Fact]
+    public void No_extended_name_is_in_a_set_a_consumer_already_asserts()
+    {
+        // The rule the new set exists for. Consumers assert the older sets on every request,
+        // so a name added to one of them fails their tests on upgrade.
+        Assert.Empty(LoggingContract.ExtendedProperties.Intersect(LoggingContract.AllProperties));
+        Assert.Empty(LoggingContract.ExtendedProperties.Intersect(LoggingContract.RequiredProperties));
+        Assert.Empty(LoggingContract.ExtendedProperties.Intersect(LoggingContract.OptionalProperties));
+    }
+
+    public static TheoryData<bool, bool, bool> OptInModes => new()
+    {
+        { false, false, false },
+        { true, false, false },
+        { false, true, false },
+        { false, false, true },
+        { true, true, true }
+    };
+
+    [Theory]
+    [MemberData(nameof(OptInModes))]
+    public void The_enricher_sets_exactly_what_the_sets_say_in_each_mode(
+        bool navigation,
+        bool requestQuery,
+        bool spanId)
+    {
+        // THE DRIFT TEST again, for the opt-in names. With every option off this is the 1.2.0
+        // output exactly; each option adds its one name and nothing else.
+        using var activity = new Activity("request").Start();
+
+        var context = FullyPopulatedRequest(authenticated: true);
+        context.Request.QueryString = new QueryString("?page=2");
+        context.Request.Headers["Sec-Fetch-Mode"] = "navigate";
+        context.Request.Headers["Sec-Fetch-Site"] = "none";
+        context.Request.Headers["Sec-Fetch-Dest"] = "document";
+        context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, EndpointMetadataCollection.Empty, "page"));
+
+        var options = new RequestLogOptions
+        {
+            IncludeNavigation = navigation,
+            IncludeRequestQuery = requestQuery,
+            IncludeSpanId = spanId
+        };
+
+        var recorder = new RecordingDiagnosticContext();
+        RequestSummaryEnricher.Enrich(recorder, context, options);
+
+        var expected = LoggingContract.EnricherProperties
+            .Concat(LoggingContract.AuthenticatedProperties)
+            .Concat(navigation ? [LoggingContract.Navigation] : [])
+            .Concat(requestQuery ? [LoggingContract.RequestQuery] : [])
+            .Concat(spanId ? [LoggingContract.SpanId] : []);
+
+        Assert.Equal(expected.Order(), recorder.Properties.Keys.Order());
+
+        if (navigation && requestQuery && spanId)
+        {
+            Assert.Equal(
+                LoggingContract.AllProperties.Except(LoggingContract.HostProperties)
+                    .Concat(LoggingContract.OptInProperties).Order(),
+                recorder.Properties.Keys.Order());
+        }
+    }
+
     private static HttpContext FullyPopulatedRequest(bool authenticated)
     {
         var context = new DefaultHttpContext();

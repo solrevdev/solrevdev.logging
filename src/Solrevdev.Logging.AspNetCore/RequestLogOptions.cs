@@ -99,6 +99,87 @@ public sealed class RequestLogOptions
     public int MaximumForwardedForLength { get; set; } = ForwardedForHeader.DefaultMaximumLength;
 
     /// <summary>
+    /// Whether the request summary carries <see cref="LoggingContract.Navigation"/>. Off by
+    /// default.
+    /// </summary>
+    /// <remarks>
+    /// Off so that upgrading from 1.2.0 changes no application's output. See
+    /// <see cref="RequestNavigation"/> for the values.
+    /// </remarks>
+    public bool IncludeNavigation { get; set; }
+
+    /// <summary>
+    /// Whether the request summary carries <see cref="LoggingContract.RequestQuery"/>. Off by
+    /// default.
+    /// </summary>
+    /// <remarks>
+    /// Off so that upgrading from 1.2.0 changes no application's output. Switched on with an
+    /// empty <see cref="RequestQueryKeys"/>, every key is written as <c>key=(set)</c> or
+    /// <c>key=</c>: the log shows which keys were sent and no value at all.
+    /// </remarks>
+    public bool IncludeRequestQuery { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="LoggingContract.SpanId"/> is written beside
+    /// <see cref="LoggingContract.TraceId"/>, on the request summary and on the client log
+    /// context. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Off so that upgrading from 1.2.0 changes no application's output.
+    /// </remarks>
+    public bool IncludeSpanId { get; set; }
+
+    /// <summary>
+    /// The query string keys whose values may be logged. Empty by default, and compared
+    /// without regard to case.
+    /// </summary>
+    /// <remarks>
+    /// List the keys that name a record, a page or a filter: an id, a page number, a sort
+    /// order. Leave out anything a person types, such as a search box or a return URL. A
+    /// listed key still has its value withheld when the value does not pass the safe-value
+    /// rule in <see cref="RequestQuery.Describe(Microsoft.AspNetCore.Http.IQueryCollection, RequestLogOptions)"/>, so listing a key is
+    /// permission to log an id, not free text.
+    /// </remarks>
+    public ISet<string> RequestQueryKeys { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The most <c>key=value</c> pairs of the query string to keep. Defaults to
+    /// <see cref="RequestQuery.DefaultMaximumPairs"/>.
+    /// </summary>
+    public int MaximumRequestQueryPairs { get; set; } = RequestQuery.DefaultMaximumPairs;
+
+    /// <summary>
+    /// The longest query string value that may be logged, for a listed key. A longer value is
+    /// withheld, not cut. Defaults to <see cref="RequestQuery.DefaultMaximumValueLength"/>.
+    /// </summary>
+    public int MaximumRequestQueryValueLength { get; set; } = RequestQuery.DefaultMaximumValueLength;
+
+    /// <summary>
+    /// The application's own request summary fields, run after the package's, in the order
+    /// added. Empty by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is how an application adds fields without replacing
+    /// <c>EnrichDiagnosticContext</c> and wiring the package's enricher and level function by
+    /// hand, which also loses the startup guard.
+    /// </para>
+    /// <para>
+    /// <strong>An enricher that throws is caught.</strong> The exception is written to
+    /// Serilog's <c>SelfLog</c> and the next enricher still runs. The package's properties
+    /// are set before any of these, so they are already on the summary. Letting it throw was
+    /// measured against Serilog.AspNetCore 10.0.0 and is worse than it sounds: the request
+    /// fails with the enricher's exception after the page has run, and no summary line is
+    /// written for it at all.
+    /// </para>
+    /// <para>
+    /// Do not set a <see cref="LoggingContract"/> name from here. The last write wins, so an
+    /// enricher that does replaces the package's value.
+    /// </para>
+    /// </remarks>
+    public IList<Action<Serilog.IDiagnosticContext, Microsoft.AspNetCore.Http.HttpContext>> SummaryEnrichers { get; } = [];
+
+    /// <summary>
     /// Reads the user's id from a principal.
     /// </summary>
     /// <remarks>

@@ -20,7 +20,7 @@
     <!-- The release number. CI publishes this version as it stands while no tag
          names it, and bumps the patch once v<this> exists; larger bumps go through
          workflow_dispatch. Raising it by hand here is how a minor or major is chosen. -->
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
 
     <!-- NuGet metadata -->
     <Authors>solrevdev</Authors>

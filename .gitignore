@@ -7,3 +7,4 @@ nupkg/
 *.suo
 TestResults/
 .DS_Store
+artifacts-local/

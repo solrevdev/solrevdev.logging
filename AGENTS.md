@@ -14,6 +14,13 @@ allowed to diverge. The package targets `net10.0` and `net11.0`. All three appli
 The package is the UNION of the three copies, not the smallest common part. Everything in it
 was measured in one of those applications first.
 
+Since 1.3.0 it also holds two MVC filters that log a refused form post,
+`AntiforgeryRefusalLogFilter` and `FormRefusalLogFilter`. They are here for the reason the rest
+is: three applications need them, one had written them and the others would have copied them,
+and MVC is in the ASP.NET Core shared framework the package already references, so they cost
+no dependency. They are log-only and opt-in. That is the edge of the scope, not a precedent:
+see rule 1 for what still stays out.
+
 ## Commands
 
 ```bash
@@ -31,7 +38,9 @@ package must carry both, so CI installs SDKs 10.0.x and 11.0.x explicitly and ch
 for both `lib/` folders. Do not switch the workflows back to `global-json-file`: setup-dotnet
 installs nothing from a `latestMajor` global.json. The three consumers stay on `net10.0`, which
 the package still serves. Tests are xunit.v3 3.2.2 with xunit.runner.visualstudio 3.1.5 and
-Microsoft.NET.Test.Sdk 18.9.0, which is what both sibling applications run.
+Microsoft.NET.Test.Sdk 18.9.0, which is what both sibling applications run. The test project
+uses the Razor SDK and Microsoft.AspNetCore.TestHost so the refusal filters run through real
+Razor Pages; both are test-only and neither is a reference of the package.
 
 ## Layout
 
@@ -40,13 +49,25 @@ src/Solrevdev.Logging.AspNetCore/
   ClientAddress.cs                  address rendering, log properties ONLY
   ForwardedForHeader.cs             reassembles the caller's claim
   RefererHeader.cs                  strips the query string; a security control
-  HeaderValue.cs                    internal; trims and caps
+  HeaderValue.cs                    trims and caps; public since 1.3.0
   RequestLogOptions.cs              the only things an application may vary
   RequestLogLevel.cs                the GetLevel function
   RequestSummaryEnricher.cs         the EnrichDiagnosticContext delegate
   ClientLogContextMiddleware.cs     ClientIp and TraceId, above the rate limiter
   UserLogContextMiddleware.cs       UserId and UserEmail, between auth and authz
   LoggingContract.cs                the property names, as constants and as sets
+  RequestNavigation.cs              Navigation from Sec-Fetch headers; opt-in
+  RequestQuery.cs                   the allowlisted query string; opt-in, empty allowlist
+  SelfLogOutput.cs                  SelfLog with a stopped Seq cut to one line
+  BootstrapLogIdentity.cs           Application and Environment before configuration loads
+  TransportExceptionLog.cs          an HTTP failure without response text or URLs
+  EventNames.cs                     the area.thing.outcome check, returned as data
+  RefusalEvents.cs                  the two event names the package writes
+  AntiforgeryRefusalLogFilter.cs    web.antiforgery.refused; always-run result filter
+  AntiforgeryRefusalLog.cs          the one writer of that event, and the endpoint filter
+  FormRefusalLogFilter.cs           web.form.refused; page filter
+  LoggedRefusal.cs                  ILoggedRefusal, the seam, and its default
+  RefusalLoggingExtensions.cs       AddSolrevdevRefusalLogging, opt-in
   *Extensions.cs                    registration
 tests/Solrevdev.Logging.AspNetCore.Tests/
 ```
@@ -58,6 +79,13 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
    bucket a limiter are the consuming application's decisions and they are load bearing: a
    whole office leaves through one NAT address. If a task asks for one of these, the answer is
    that it belongs in the application, and say so rather than adding it quietly.
+
+   The same answer goes for OpenTelemetry setup, EF Core and MediatR. The package references
+   Serilog.AspNetCore and the ASP.NET Core shared framework and nothing else, and a change that
+   needs another package reference belongs in the application or in a package of its own. The
+   two MVC refusal filters came in under that test, because MVC is in the shared framework.
+   A filter or middleware that changes a response, as opposed to logging one, does not belong
+   here either.
 
 2. **`ClientAddress.Describe` is for log properties only.** Its output is reshaped to be
    readable, which makes it wrong for anything needing an address that is stable and unique
@@ -190,6 +218,73 @@ tests/Solrevdev.Logging.AspNetCore.Tests/
     gets broken, so the README publishes the grep as a convention for consumers and the same
     grep applies here. If a change adds a call site, it needs a reason in the commit message
     and the expected count in the README moves in the same commit.
+
+16. **A new property is opt-in and goes in a new set.** Consumers assert `RequiredProperties`,
+    `OptionalProperties` and `AllProperties` on every request, so a name added to one of them
+    fails three test suites on upgrade. `Navigation`, `RequestQuery` and `SpanId` are in
+    `OptInProperties`, each behind an `Include*` option that defaults to off, and the drift
+    test runs the enricher in each mode. The full policy is in `MAINTAINING.md` under "Adding
+    a property". Do not turn one of these on by default in a minor version.
+
+17. **An application's summary enricher is caught, and that was measured.** An exception from
+    `EnrichDiagnosticContext` escapes Serilog's middleware after the page has run and no
+    summary line is written; `SummarySeamTests` pins it. So `RequestSummaryEnricher` sets the
+    package's properties first, then runs `RequestLogOptions.SummaryEnrichers` one at a time
+    inside a catch that writes to `SelfLog`. Do not remove the catch to "surface" a bug.
+
+18. **`EventNames` returns data and the package references no test framework.** Each
+    application asserts on the result in its own test. Do not add an xunit reference to `src`.
+
+19. **The refusal filters keep their names, levels and caps.** `web.antiforgery.refused` and
+    `web.form.refused` are queried in the shared Seq, and so are their properties, which are
+    `LoggingContract.RefusalProperties`. The form line is a Warning when it is the only record
+    and Information when `ILoggedRefusal` says a refusal was already logged, so
+    `@Level = 'Warning'` counts each refusal once. Do not make it always a Warning. The
+    anti-forgery filter is an always-run result filter because the check short-circuits before
+    any handler; an ordinary result filter never sees it, and `RefusalLoggingTests` proves that
+    against a real TestServer. It looks `IAntiforgery` up per refusal, not in its constructor:
+    a global filter is built for every MVC request and must not fail in an application with no
+    anti-forgery services.
+
+20. **`ILoggedRefusal` is read-only and optional.** An application's refusal state can live in
+    a project that cannot reference this package, so the filter reads an interface and the
+    application registers an adapter. Do not make the filter require a registration, and do
+    not add a write method to the interface: `LoggedRefusal` is the default that has one.
+
+21. **The message templates are built from `LoggingContract` constants.** A structured logging
+    template names its properties in the string, which is the one place rule 4 is easy to
+    break without noticing. The two filters concatenate constants into `const` templates.
+    Keep `{Event}` first in each.
+
+22. **The environment order in `BootstrapLogIdentity` is measured per host, never reasoned.**
+    `WebApplication.CreateBuilder` takes `DOTNET_ENVIRONMENT` over `ASPNETCORE_ENVIRONMENT`.
+    `ConfigureWebHostDefaults` takes `ASPNETCORE_ENVIRONMENT` over both the other variable and
+    the `--environment` argument. A worker never reads `ASPNETCORE_ENVIRONMENT`. A reviewer
+    reported the first as a bug from what is commonly written, and it was not one.
+    `BootstrapLogIdentityHostTests` builds each host and compares; change an order only when
+    that test says the runtime did.
+
+23. **`web.antiforgery.refused` has one writer, `AntiforgeryRefusalLog`.** The MVC filter, the
+    endpoint filter and an application's own catch block all go through it, and it writes at
+    most once per request. Do not format the event anywhere else. The endpoint filter logs a
+    thrown exception only: it does not read `IAntiforgeryValidationFeature`, because that is
+    set on requests the endpoint then serves, and the framework refuses a form-binding
+    endpoint before any endpoint filter runs. Both are pinned in `AntiforgeryRefusalLogTests`.
+
+24. **Some types must stay free of ASP.NET.** `SelfLogOutput`, `TransportExceptionLog`,
+    `HeaderValue`, `EventNames`, `ILoggedRefusal`, `LoggedRefusal`, `BootstrapLogIdentity`,
+    `RefusalEvents` and `LoggingContract` may one day move to a package a worker can use.
+    `MAINTAINING.md` lists them under "Considered, not done" and `PortableTypesTests` holds it.
+
+25. **A new public type name can break a consumer's build.** All public types share one
+    namespace, so a local type of the same name gives CS0104 on upgrade; one application got
+    it on five types from the 1.3.0 release candidate. Keep the name if it is the right one,
+    list it in the changelog and in the README's upgrade section, and update
+    `PublicSurfaceTests`. Never write that a release with new public types changed nothing.
+
+26. **Each refusal event has its own property set.** `AntiforgeryRefusalProperties` and
+    `FormRefusalProperties`, each with an optional set, and `RefusalProperties` for the eight
+    names they added. The drift tests run each filter in each mode against them.
 
 ## Commits
 

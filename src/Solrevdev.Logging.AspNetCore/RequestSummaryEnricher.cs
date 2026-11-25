@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Serilog;
+using Serilog.Debugging;
 
 namespace Solrevdev.Logging.AspNetCore;
 
@@ -99,6 +100,20 @@ public static class RequestSummaryEnricher
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(options);
 
+        SetContract(diagnosticContext, httpContext, options);
+        SetOptIn(diagnosticContext, httpContext, options);
+        RunSummaryEnrichers(diagnosticContext, httpContext, options);
+    }
+
+    /// <summary>
+    /// The properties every version has set: <see cref="LoggingContract.EnricherProperties"/>
+    /// and, for a signed-in caller, <see cref="LoggingContract.AuthenticatedProperties"/>.
+    /// </summary>
+    private static void SetContract(
+        IDiagnosticContext diagnosticContext,
+        HttpContext httpContext,
+        RequestLogOptions options)
+    {
         Set(diagnosticContext, LoggingContract.TraceId, Activity.Current?.TraceId.ToString());
 
         var clientIp = ClientAddress.Describe(httpContext.Connection?.RemoteIpAddress);
@@ -154,6 +169,72 @@ public static class RequestSummaryEnricher
         // treat blank as absent so both call sites give one answer.
         Set(diagnosticContext, LoggingContract.UserId, options.ResolveUserId(httpContext.User));
         Set(diagnosticContext, LoggingContract.UserEmail, options.ResolveUserEmail(httpContext.User));
+    }
+
+    /// <summary>
+    /// <see cref="LoggingContract.OptInProperties"/>, each only when its option is set, so an
+    /// application that upgrades and changes nothing writes what it wrote before.
+    /// </summary>
+    private static void SetOptIn(
+        IDiagnosticContext diagnosticContext,
+        HttpContext httpContext,
+        RequestLogOptions options)
+    {
+        if (options.IncludeSpanId)
+        {
+            Set(diagnosticContext, LoggingContract.SpanId, Activity.Current?.SpanId.ToString());
+        }
+
+        if (options.IncludeNavigation)
+        {
+            Set(
+                diagnosticContext,
+                LoggingContract.Navigation,
+                RequestNavigation.Describe(httpContext.Request.Headers));
+        }
+
+        // Static files are served before routing, so they never have an endpoint. Their
+        // summaries are dropped at Verbose anyway; this keeps them from paying for the work.
+        if (options.IncludeRequestQuery && httpContext.GetEndpoint() is not null)
+        {
+            Set(
+                diagnosticContext,
+                LoggingContract.RequestQuery,
+                RequestQuery.Describe(httpContext.Request.Query, options));
+        }
+    }
+
+    /// <summary>
+    /// The application's own enrichers, last, each one caught.
+    /// </summary>
+    /// <remarks>
+    /// Caught because of what Serilog's middleware does with an exception from this delegate,
+    /// measured against Serilog.AspNetCore 10.0.0 and pinned by a test. It calls the delegate
+    /// after the rest of the pipeline has returned. An exception there escapes the middleware,
+    /// so the request fails after its page ran, and the summary line for the request is never
+    /// written. A broken field must not cost the line or the response.
+    /// </remarks>
+    private static void RunSummaryEnrichers(
+        IDiagnosticContext diagnosticContext,
+        HttpContext httpContext,
+        RequestLogOptions options)
+    {
+        // Indexed, not foreach: the list is application configuration and a foreach over it
+        // would throw if anything added to it while a request was being logged.
+        for (var index = 0; index < options.SummaryEnrichers.Count; index++)
+        {
+            try
+            {
+                options.SummaryEnrichers[index]?.Invoke(diagnosticContext, httpContext);
+            }
+            catch (Exception exception)
+            {
+                SelfLog.WriteLine(
+                    "Solrevdev.Logging.AspNetCore: summary enricher {0} threw and was skipped: {1}",
+                    index,
+                    exception);
+            }
+        }
     }
 
     /// <summary>
